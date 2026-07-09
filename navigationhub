@@ -1356,7 +1356,7 @@ body.video-modal-open {
 
             <!-- İş Birimleri -->
             <div class="section" data-role-section="business">
-                <h2>İş Birimi</h2>
+                <h2>🏢 İş Birimi</h2>
 
                 <div class="card" onclick="location.href='https://atlas.fibabanka.local/jira/servicedesk/customer/user/approvals?approvalQueryType=myPending'">
                     <span class="badge orange">!</span>
@@ -1366,25 +1366,25 @@ body.video-modal-open {
 
                 <div class="card" onclick="location.href='https://atlas.fibabanka.local/jira/rest/scriptrunner/latest/custom/olgunlastirma2Browser?pool=idea&role=business&scope=all'">
                     <span class="badge blue" id="badgeBusinessIdeaPool">-</span>
-                    <div class="card-title">Fikir Havuzu<br>(Benim-Birim-Banka)</div>
+                    <div class="card-title">🔍 Fikir Havuzu<br>(Benim-Birim-Banka)</div>
                     <div class="card-desc">Benim, birimimin ve bankadaki fikir kayıtları</div>
                 </div>
 
                 <div class="card" onclick="location.href='https://atlas.fibabanka.local/jira/rest/scriptrunner/latest/custom/olgunlastirma2Browser?pool=idea&role=business&scope=maturity'">
                     <span class="badge orange" id="badgeBusinessMaturity">-</span>
-                    <div class="card-title">Olgunlaştırma Bekleyen Fikirler</div>
+                    <div class="card-title">🧭 Olgunlaştırma Bekleyen Fikirler</div>
                     <div class="card-desc">Olgunlaştırma aksiyonu bekleyen fikir kayıtları</div>
                 </div>
 
                 <div class="card" onclick="location.href='https://atlas.fibabanka.local/jira/rest/scriptrunner/latest/custom/olgunlastirma2Browser?pool=idea&role=business&scope=backlog'">
                     <span class="badge blue" id="badgeBusinessBacklog">-</span>
-                    <div class="card-title">Önceliklendirilmiş Backlog Talepleri</div>
+                    <div class="card-title">📥 Önceliklendirilmiş Backlog Talepleri</div>
                     <div class="card-desc">Backlog statüsündeki talep kayıtları</div>
                 </div>
 
                 <div class="card" onclick="location.href='https://atlas.fibabanka.local/jira/rest/scriptrunner/latest/custom/olgunlastirma2Browser?pool=idea&role=business&scope=worklist'">
                     <span class="badge blue" id="badgeBusinessPlanned">-</span>
-                    <div class="card-title">Planlanan Talepler</div>
+                    <div class="card-title">📅 Planlanan Talepler</div>
                     <div class="card-desc">İş listesine alınan planlı talep kayıtları</div>
                 </div>
             </div>
@@ -1395,31 +1395,31 @@ body.video-modal-open {
 
                 <div class="card" onclick="location.href='https://atlas.fibabanka.local/jira/rest/scriptrunner/latest/custom/olgunlastirma2Browser?pool=idea&role=pmo&scope=control'">
                     <span class="badge orange" id="badgePmoControl">-</span>
-                    <div class="card-title">Olgunluk Kontrolü Bekleyen Fikirler</div>
+                    <div class="card-title">🧭 Olgunluk Kontrolü Bekleyen Fikirler</div>
                     <div class="card-desc">Olgunluk kontrolü aksiyonu bekleyen fikirler</div>
                 </div>
 
                 <div class="card" onclick="location.href='https://atlas.fibabanka.local/jira/rest/scriptrunner/latest/custom/olgunlastirma2Browser?pool=idea&role=pmo&scope=maturity'">
                     <span class="badge orange" id="badgePmoMaturity">-</span>
-                    <div class="card-title">Olgunlaştırma Bekleyen Fikirler</div>
+                    <div class="card-title">🧭 Olgunlaştırma Bekleyen Fikirler</div>
                     <div class="card-desc">Olgunlaştırma aksiyonu bekleyen fikir kayıtları</div>
                 </div>
 
                 <div class="card" onclick="location.href='https://atlas.fibabanka.local/jira/rest/scriptrunner/latest/custom/olgunlastirma2Browser?pool=idea&role=pmo&scope=all'">
                     <span class="badge blue" id="badgePmoIdeaPool">-</span>
-                    <div class="card-title">Fikir Havuzu<br>(Benim-Birim-Banka)</div>
+                    <div class="card-title">🔍 Fikir Havuzu<br>(Benim-Birim-Banka)</div>
                     <div class="card-desc">Benim, birimimin ve bankadaki fikir kayıtları</div>
                 </div>
 
                 <div class="card" onclick="location.href='https://atlas.fibabanka.local/jira/rest/scriptrunner/latest/custom/olgunlastirma2Browser?pool=idea&role=pmo&scope=backlog'">
                     <span class="badge blue" id="badgePmoBacklog">-</span>
-                    <div class="card-title">Önceliklendirilmiş Backlog Talepleri</div>
+                    <div class="card-title">📥 Önceliklendirilmiş Backlog Talepleri</div>
                     <div class="card-desc">Backlog statüsündeki talep kayıtları</div>
                 </div>
 
                 <div class="card" onclick="location.href='https://atlas.fibabanka.local/jira/rest/scriptrunner/latest/custom/olgunlastirma2Browser?pool=idea&role=pmo&scope=worklist'">
                     <span class="badge blue" id="badgePmoPlanned">-</span>
-                    <div class="card-title">Planlanan Talepler</div>
+                    <div class="card-title">📅 Planlanan Talepler</div>
                     <div class="card-desc">İş listesine alınan planlı talep kayıtları</div>
                 </div>
             </div>
@@ -1434,27 +1434,33 @@ body.video-modal-open {
                     <div class="card-desc">Aksiyon bekleyen BT iç fikir onay kayıtları</div>
                 </div>
 
+                <div class="card" onclick="location.href='https://atlas.fibabanka.local/jira/servicedesk/customer/user/approvals?approvalQueryType=myPending'">
+                    <span class="badge orange">!</span>
+                    <div class="card-title">⏳ Onayımda Bekleyen BT İç Fikirler</div>
+                    <div class="card-desc">Aksiyon bekleyen BT iç fikir onay kayıtları</div>
+                </div>
+
                 <div class="card" onclick="location.href='https://atlas.fibabanka.local/jira/rest/scriptrunner/latest/custom/olgunlastirma2Browser?pool=idea&role=it&scope=maturity'">
                     <span class="badge orange" id="badgeItMaturity">-</span>
-                    <div class="card-title">Olgunlaştırma Bekleyen Fikirler</div>
+                    <div class="card-title">🧭 Olgunlaştırma Bekleyen Fikirler</div>
                     <div class="card-desc">Domain, efor, teknik paydaş ve IT skor aksiyonu bekleyen kayıtlar</div>
                 </div>
 
                 <div class="card" onclick="location.href='https://atlas.fibabanka.local/jira/rest/scriptrunner/latest/custom/olgunlastirma2Browser?pool=idea&role=it&scope=all'">
                     <span class="badge blue" id="badgeItIdeaPool">-</span>
-                    <div class="card-title">Fikir Havuzu<br>(Benim-Birim-Banka)</div>
+                    <div class="card-title">🔍 Fikir Havuzu<br>(Benim-Birim-Banka)</div>
                     <div class="card-desc">Benim, birimimin ve bankadaki fikir kayıtları</div>
                 </div>
 
                 <div class="card" onclick="location.href='https://atlas.fibabanka.local/jira/rest/scriptrunner/latest/custom/olgunlastirma2Browser?pool=idea&role=it&scope=backlog'">
                     <span class="badge blue" id="badgeItBacklog">-</span>
-                    <div class="card-title">Önceliklendirilmiş Backlog Talepleri</div>
+                    <div class="card-title">📥 Önceliklendirilmiş Backlog Talepleri</div>
                     <div class="card-desc">Backlog statüsündeki talep kayıtları</div>
                 </div>
 
                 <div class="card" onclick="location.href='https://atlas.fibabanka.local/jira/rest/scriptrunner/latest/custom/olgunlastirma2Browser?pool=idea&role=it&scope=worklist'">
                     <span class="badge blue" id="badgeItPlanned">-</span>
-                    <div class="card-title">Planlanan Talepler</div>
+                    <div class="card-title">📅 Planlanan Talepler</div>
                     <div class="card-desc">İş listesine alınan planlı talep kayıtları</div>
                 </div>
             </div>
