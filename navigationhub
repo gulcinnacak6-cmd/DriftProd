@@ -554,20 +554,19 @@ navigationHub(httpMethod: "GET") { MultivaluedMap queryParams ->
             if (mode === 'maturity' && (!hasValue(issue.itScore) || !hasValue(issue.anaSorumluBirim))) stats.itNeedsScore += 1;
         });
 
-        setCount('badgeIdeaTotal', stats.control);
-        setCount('badgeBusinessTeamIdeas', stats.teamIdeas);
-        setCount('badgeBusinessAllIdeas', stats.total);
-        setCount('badgeRequestTotal', stats.converted);
-        setCount('badgePmoIdea', stats.control);
-        setCount('badgePmoAllIdeas', stats.total);
-        setCount('badgePmoRequest', stats.converted);
+        setCount('badgeBusinessIdeaPool', stats.total);
+        setCount('badgeBusinessMaturity', stats.maturity);
+        setCount('badgeBusinessBacklog', stats.backlog);
+        setCount('badgeBusinessPlanned', stats.worklist);
         setCount('badgePmoControl', stats.control);
-        setCount('badgeItIdea', stats.control);
+        setCount('badgePmoMaturity', stats.maturity);
+        setCount('badgePmoIdeaPool', stats.total);
+        setCount('badgePmoBacklog', stats.backlog);
+        setCount('badgePmoPlanned', stats.worklist);
         setCount('badgeItMaturity', stats.maturity);
+        setCount('badgeItIdeaPool', stats.total);
         setCount('badgeItBacklog', stats.backlog);
-        setCount('badgeItResponsible', stats.responsibleIdeas);
-        setCount('badgeItAllIdeas', stats.total);
-        setCount('badgeItRequest', stats.converted);
+        setCount('badgeItPlanned', stats.worklist);
     }
 
     function loadHubMetrics(user){
@@ -1357,109 +1356,108 @@ body.video-modal-open {
 
             <!-- İş Birimleri -->
             <div class="section" data-role-section="business">
-                <h2>🏢 İş Birimleri</h2>
-
-                <div class="card" onclick="location.href='https://atlas.fibabanka.local/jira/rest/scriptrunner/latest/custom/filozof'">
-                    <span class="badge blue">+</span>
-                    <div class="card-title">💬 Filozof ile Fikir Oluştur</div>
-                    <div class="card-desc">Sohbet ederek yeni fikir veya talep kaydı oluşturun</div>
-                </div>
+                <h2>İş Birimi</h2>
 
                 <div class="card" onclick="location.href='https://atlas.fibabanka.local/jira/servicedesk/customer/user/approvals?approvalQueryType=myPending'">
                     <span class="badge orange">!</span>
-                    <div class="card-title">⏳ Onayımda Bekleyen Fikirler</div>
+                    <div class="card-title">Onayımda Bekleyen Fikirler</div>
                     <div class="card-desc">Aksiyon bekleyen fikir onay kayıtları</div>
                 </div>
 
-                <div class="card" onclick="location.href='https://atlas.fibabanka.local/jira/rest/scriptrunner/latest/custom/olgunlastirma2Browser?pool=idea&role=business&scope=teamideas'">
-                    <span class="badge orange" id="badgeBusinessTeamIdeas">-</span>
-                    <div class="card-title">👥 Ekibimin Açtığı Fikirler</div>
-                    <div class="card-desc">İş birimi yetki grubumla eşleşen fikir kayıtları</div>
+                <div class="card" onclick="location.href='https://atlas.fibabanka.local/jira/rest/scriptrunner/latest/custom/olgunlastirma2Browser?pool=idea&role=business&scope=all'">
+                    <span class="badge blue" id="badgeBusinessIdeaPool">-</span>
+                    <div class="card-title">Fikir Havuzu<br>(Benim-Birim-Banka)</div>
+                    <div class="card-desc">Benim, birimimin ve bankadaki fikir kayıtları</div>
                 </div>
 
-                <div class="card" onclick="location.href='https://atlas.fibabanka.local/jira/rest/scriptrunner/latest/custom/olgunlastirma2Browser?pool=idea&scope=control'">
-                    <span class="badge blue" id="badgeIdeaTotal">-</span>
-                    <div class="card-title">🔍 Banka - Fikir Havuzu</div>
-                    <div class="card-desc">Olgunluk kontrolü statüsündeki banka fikirleri</div>
+                <div class="card" onclick="location.href='https://atlas.fibabanka.local/jira/rest/scriptrunner/latest/custom/olgunlastirma2Browser?pool=idea&role=business&scope=maturity'">
+                    <span class="badge orange" id="badgeBusinessMaturity">-</span>
+                    <div class="card-title">Olgunlaştırma Bekleyen Fikirler</div>
+                    <div class="card-desc">Olgunlaştırma aksiyonu bekleyen fikir kayıtları</div>
                 </div>
 
-                <div class="card" onclick="location.href='https://atlas.fibabanka.local/jira/rest/scriptrunner/latest/custom/olgunlastirma2Browser?pool=idea&scope=all'">
-                    <span class="badge blue" id="badgeBusinessAllIdeas">-</span>
-                    <div class="card-title">📚 Tüm Fikirler</div>
-                    <div class="card-desc">Filozof kapsamındaki tüm fikir kayıtları</div>
+                <div class="card" onclick="location.href='https://atlas.fibabanka.local/jira/rest/scriptrunner/latest/custom/olgunlastirma2Browser?pool=idea&role=business&scope=backlog'">
+                    <span class="badge blue" id="badgeBusinessBacklog">-</span>
+                    <div class="card-title">Önceliklendirilmiş Backlog Talepleri</div>
+                    <div class="card-desc">Backlog statüsündeki talep kayıtları</div>
                 </div>
 
-                <div class="card" onclick="location.href='https://atlas.fibabanka.local/jira/rest/scriptrunner/latest/custom/olgunlastirma2Browser?pool=request&scope=converted'">
-                    <span class="badge blue" id="badgeRequestTotal">-</span>
-                    <div class="card-title">📊 Fikirden Talebe Dönüşen İşler</div>
-                    <div class="card-desc">Fikirden talebe dönüşen işlerdir</div>
+                <div class="card" onclick="location.href='https://atlas.fibabanka.local/jira/rest/scriptrunner/latest/custom/olgunlastirma2Browser?pool=idea&role=business&scope=worklist'">
+                    <span class="badge blue" id="badgeBusinessPlanned">-</span>
+                    <div class="card-title">Planlanan Talepler</div>
+                    <div class="card-desc">İş listesine alınan planlı talep kayıtları</div>
                 </div>
             </div>
 
             <!-- PMO -->
             <div class="section" data-role-section="pmo">
-                <h2>📊 PMO</h2>
+                <h2>PMO</h2>
 
                 <div class="card" onclick="location.href='https://atlas.fibabanka.local/jira/rest/scriptrunner/latest/custom/olgunlastirma2Browser?pool=idea&role=pmo&scope=control'">
                     <span class="badge orange" id="badgePmoControl">-</span>
-                    <div class="card-title">🧭 Olgunluk Kontrolü Bekleyenler</div>
-                    <div class="card-desc">Kontrol, toplantı ve portföy aksiyonu bekleyen fikirler</div>
+                    <div class="card-title">Olgunluk Kontrolü Bekleyen Fikirler</div>
+                    <div class="card-desc">Olgunluk kontrolü aksiyonu bekleyen fikirler</div>
+                </div>
+
+                <div class="card" onclick="location.href='https://atlas.fibabanka.local/jira/rest/scriptrunner/latest/custom/olgunlastirma2Browser?pool=idea&role=pmo&scope=maturity'">
+                    <span class="badge orange" id="badgePmoMaturity">-</span>
+                    <div class="card-title">Olgunlaştırma Bekleyen Fikirler</div>
+                    <div class="card-desc">Olgunlaştırma aksiyonu bekleyen fikir kayıtları</div>
                 </div>
 
                 <div class="card" onclick="location.href='https://atlas.fibabanka.local/jira/rest/scriptrunner/latest/custom/olgunlastirma2Browser?pool=idea&role=pmo&scope=all'">
-                    <span class="badge blue" id="badgePmoAllIdeas">-</span>
-                    <div class="card-title">📚 Tüm Fikirler</div>
-                    <div class="card-desc">Filozof kapsamındaki tüm fikir kayıtları</div>
+                    <span class="badge blue" id="badgePmoIdeaPool">-</span>
+                    <div class="card-title">Fikir Havuzu<br>(Benim-Birim-Banka)</div>
+                    <div class="card-desc">Benim, birimimin ve bankadaki fikir kayıtları</div>
                 </div>
 
-                <div class="card" onclick="location.href='https://atlas.fibabanka.local/jira/rest/scriptrunner/latest/custom/olgunlastirma2Browser?pool=request&role=pmo&scope=myportfolio'">
-                    <span class="badge orange" id="badgePmoPortfolio">-</span>
-                    <div class="card-title">🗂️ Portföyümdeki Talepler</div>
-                    <div class="card-desc">Portföy yöneticisi ben olan veya portföy yöneticisi boş talepler</div>
+                <div class="card" onclick="location.href='https://atlas.fibabanka.local/jira/rest/scriptrunner/latest/custom/olgunlastirma2Browser?pool=idea&role=pmo&scope=backlog'">
+                    <span class="badge blue" id="badgePmoBacklog">-</span>
+                    <div class="card-title">Önceliklendirilmiş Backlog Talepleri</div>
+                    <div class="card-desc">Backlog statüsündeki talep kayıtları</div>
                 </div>
 
-                <div class="card" onclick="location.href='https://atlas.fibabanka.local/jira/rest/scriptrunner/latest/custom/olgunlastirma2Browser?pool=request&role=pmo&scope=converted'">
-                    <span class="badge blue" id="badgePmoRequest">-</span>
-                    <div class="card-title">📊 Fikirden Talebe Dönüşen İşler</div>
-                    <div class="card-desc">Fikirden talebe dönüşen işlerdir</div>
+                <div class="card" onclick="location.href='https://atlas.fibabanka.local/jira/rest/scriptrunner/latest/custom/olgunlastirma2Browser?pool=idea&role=pmo&scope=worklist'">
+                    <span class="badge blue" id="badgePmoPlanned">-</span>
+                    <div class="card-title">Planlanan Talepler</div>
+                    <div class="card-desc">İş listesine alınan planlı talep kayıtları</div>
                 </div>
             </div>
 
             <!-- IT -->
             <div class="section" data-role-section="it">
-                <h2>🖥️ IT</h2>
+                <h2>IT</h2>
+
+                <div class="card" onclick="location.href='https://atlas.fibabanka.local/jira/servicedesk/customer/user/approvals?approvalQueryType=myPending'">
+                    <span class="badge orange">!</span>
+                    <div class="card-title">Onayımda Bekleyen BT İç Fikirler</div>
+                    <div class="card-desc">Aksiyon bekleyen BT iç fikir onay kayıtları</div>
+                </div>
 
                 <div class="card" onclick="location.href='https://atlas.fibabanka.local/jira/rest/scriptrunner/latest/custom/olgunlastirma2Browser?pool=idea&role=it&scope=maturity'">
                     <span class="badge orange" id="badgeItMaturity">-</span>
-                    <div class="card-title">🛠️ IT Değerlendirmesi Bekleyenler</div>
+                    <div class="card-title">Olgunlaştırma Bekleyen Fikirler</div>
                     <div class="card-desc">Domain, efor, teknik paydaş ve IT skor aksiyonu bekleyen kayıtlar</div>
+                </div>
+
+                <div class="card" onclick="location.href='https://atlas.fibabanka.local/jira/rest/scriptrunner/latest/custom/olgunlastirma2Browser?pool=idea&role=it&scope=all'">
+                    <span class="badge blue" id="badgeItIdeaPool">-</span>
+                    <div class="card-title">Fikir Havuzu<br>(Benim-Birim-Banka)</div>
+                    <div class="card-desc">Benim, birimimin ve bankadaki fikir kayıtları</div>
                 </div>
 
                 <div class="card" onclick="location.href='https://atlas.fibabanka.local/jira/rest/scriptrunner/latest/custom/olgunlastirma2Browser?pool=idea&role=it&scope=backlog'">
                     <span class="badge blue" id="badgeItBacklog">-</span>
-                    <div class="card-title">📥 Önceliklendirilmiş Backlog İşleri</div>
-                    <div class="card-desc">Backlog statüsündeki fikir kayıtları</div>
+                    <div class="card-title">Önceliklendirilmiş Backlog Talepleri</div>
+                    <div class="card-desc">Backlog statüsündeki talep kayıtları</div>
                 </div>
 
-                <div class="card" onclick="location.href='https://atlas.fibabanka.local/jira/rest/scriptrunner/latest/custom/olgunlastirma2Browser?pool=idea&role=it&scope=responsibleideas'">
-                    <span class="badge orange" id="badgeItResponsible">-</span>
-                    <div class="card-title">🧭 Ana Sorumlu ve Teknik Paydaş Olduğum Fikirler</div>
-                    <div class="card-desc">IT Düzenle butonuyla </div>
-                </div>
-
-                <div class="card" onclick="location.href='https://atlas.fibabanka.local/jira/rest/scriptrunner/latest/custom/olgunlastirma2Browser?pool=idea&role=it&scope=all'">
-                    <span class="badge blue" id="badgeItAllIdeas">-</span>
-                    <div class="card-title">📚 Tüm Fikirler</div>
-                    <div class="card-desc">Filozof kapsamındaki tüm fikir kayıtları</div>
-                </div>
-
-                <div class="card" onclick="location.href='https://atlas.fibabanka.local/jira/rest/scriptrunner/latest/custom/olgunlastirma2Browser?pool=request&role=it&scope=converted'">
-                    <span class="badge blue" id="badgeItRequest">-</span>
-                    <div class="card-title">📊 Fikirden Talebe Dönüşen İşler</div>
-                    <div class="card-desc">Fikirden talebe dönüşen işlerdir</div>
+                <div class="card" onclick="location.href='https://atlas.fibabanka.local/jira/rest/scriptrunner/latest/custom/olgunlastirma2Browser?pool=idea&role=it&scope=worklist'">
+                    <span class="badge blue" id="badgeItPlanned">-</span>
+                    <div class="card-title">Planlanan Talepler</div>
+                    <div class="card-desc">İş listesine alınan planlı talep kayıtları</div>
                 </div>
             </div>
-
         </div>
     </div>
 </div>
