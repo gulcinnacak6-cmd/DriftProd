@@ -1360,7 +1360,7 @@ body.video-modal-open {
 
                 <div class="card" onclick="location.href='https://atlas.fibabanka.local/jira/servicedesk/customer/user/approvals?approvalQueryType=myPending'">
                     <span class="badge orange">!</span>
-                    <div class="card-title">⏳ Onayımda Bekleyen Fikirler</div>
+                    <div class="card-title">Onayımda Bekleyen Fikirler</div>
                     <div class="card-desc">Aksiyon bekleyen fikir onay kayıtları</div>
                 </div>
 
@@ -1391,7 +1391,7 @@ body.video-modal-open {
 
             <!-- PMO -->
             <div class="section" data-role-section="pmo">
-                <h2>📊 PMO</h2>
+                <h2>PMO</h2>
 
                 <div class="card" onclick="location.href='https://atlas.fibabanka.local/jira/rest/scriptrunner/latest/custom/olgunlastirma2Browser?pool=idea&role=pmo&scope=control'">
                     <span class="badge orange" id="badgePmoControl">-</span>
@@ -1426,7 +1426,13 @@ body.video-modal-open {
 
             <!-- IT -->
             <div class="section" data-role-section="it">
-                <h2>🖥️ IT</h2>
+                <h2>IT</h2>
+
+                <div class="card" onclick="location.href='https://atlas.fibabanka.local/jira/servicedesk/customer/user/approvals?approvalQueryType=myPending'">
+                    <span class="badge orange">!</span>
+                    <div class="card-title">Onayımda Bekleyen BT İç Fikirler</div>
+                    <div class="card-desc">Aksiyon bekleyen BT iç fikir onay kayıtları</div>
+                </div>
 
                 <div class="card" onclick="location.href='https://atlas.fibabanka.local/jira/servicedesk/customer/user/approvals?approvalQueryType=myPending'">
                     <span class="badge orange">!</span>
