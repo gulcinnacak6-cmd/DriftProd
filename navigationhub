@@ -1,0 +1,1474 @@
+import com.onresolve.scriptrunner.runner.rest.common.CustomEndpointDelegate
+import groovy.transform.BaseScript
+
+import javax.ws.rs.core.MultivaluedMap
+import javax.ws.rs.core.Response
+
+@BaseScript CustomEndpointDelegate delegate
+
+navigationHub(httpMethod: "GET") { MultivaluedMap queryParams ->
+
+    def html = """
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>Filozof Hub</title>
+<script>
+(function(){
+    var hubPath = window.location.pathname + window.location.search + window.location.hash;
+    var loginUrl = '/jira/login.jsp?os_destination=' + encodeURIComponent(hubPath);
+    var sessionUrl = '/jira/rest/auth/1/session';
+    var myselfUrl = '/jira/rest/api/2/myself?expand=groups';
+    var searchUrl = '/jira/rest/scriptrunner/latest/custom/olgunlastirmaSearch?pool=idea&scope=all';
+    var portfolioSearchUrl = '/jira/rest/scriptrunner/latest/custom/olgunlastirmaSearch?pool=request&role=pmo&scope=myportfolio';
+    var serverLogoUrl = '/jira/rest/scriptrunner/latest/custom/navigationHubAsset?type=logo';
+    var logoIssueUrl = '/jira/rest/api/2/issue/P16-4768?fields=attachment';
+    var logoFileName = 'fi.png';
+    var serverVideoUrl = '/jira/rest/scriptrunner/latest/custom/navigationHubAsset?type=video';
+    var videoIssueUrl = '/jira/rest/api/2/issue/P16-4768?fields=attachment';
+    var videoFileName = '';
+    var introVideoSrc = '';
+    var introVideoLoading = false;
+    var assetVersion = new Date().getTime().toString();
+
+    function whenDomReady(callback){
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', callback);
+        } else {
+            callback();
+        }
+    }
+
+    function goLogin(){
+        if (window.location.pathname.indexOf('/login.jsp') === -1) {
+            window.location.replace(loginUrl);
+        }
+    }
+
+    function withAssetVersion(url){
+        if (!url) return '';
+        return url + (url.indexOf('?') === -1 ? '?' : '&') + 'v=' + encodeURIComponent(assetVersion);
+    }
+
+    function initials(name){
+        var parts = (name || '').trim().split(/\\s+/).filter(Boolean);
+        if (!parts.length) return '?';
+        return ((parts[0] || '').charAt(0) + (parts.length > 1 ? (parts[parts.length - 1] || '').charAt(0) : '')).toUpperCase();
+    }
+
+    function renderUserProfile(user){
+        var profile = document.getElementById('userProfile');
+        if (!profile || !user) return;
+
+        var displayName = user.displayName || user.name || user.key || 'Kullanıcı';
+        var userKey = user.name || user.key || '';
+        var avatarUrls = user.avatarUrls || {};
+        var avatarUrl = avatarUrls['48x48'] || avatarUrls['32x32'] || avatarUrls['24x24'] || avatarUrls['16x16'] || '';
+        var profileUrl = userKey ? ('/jira/secure/ViewProfile.jspa?name=' + encodeURIComponent(userKey)) : '/jira/secure/ViewProfile.jspa';
+        var avatarEl = profile.querySelector('.user-avatar');
+        var nameEl = profile.querySelector('.user-name');
+        var metaEl = profile.querySelector('.user-meta');
+
+        profile.href = profileUrl;
+        profile.title = displayName + ' profilini görüntüle';
+        if (nameEl) nameEl.textContent = displayName;
+        if (metaEl) metaEl.textContent = userKey || 'Profil';
+        if (avatarEl) {
+            if (avatarUrl) {
+                avatarEl.textContent = '';
+                avatarEl.style.backgroundImage = 'url("' + avatarUrl.replace(/"/g, '%22') + '")';
+                avatarEl.classList.add('image');
+            } else {
+                avatarEl.textContent = initials(displayName);
+            }
+        }
+    }
+
+    function normalizeText(value){
+        return (value || '').toString().trim().toLocaleLowerCase('tr-TR');
+    }
+
+    function foldText(value){
+        var text = normalizeText(value);
+        try {
+            text = text.normalize('NFD').replace(/[\\u0300-\\u036f]/g, '');
+        } catch (e) {}
+        return text.replace(/ı/g, 'i');
+    }
+
+    function resolveAttachmentUrl(attachment){
+        if (!attachment) return '';
+        if (attachment.content) return attachment.content;
+        if (attachment.id && attachment.filename) {
+            return '/jira/secure/attachment/' + encodeURIComponent(attachment.id) + '/' + encodeURIComponent(attachment.filename);
+        }
+        return '';
+    }
+
+    function setFilozofLogo(src){
+        if (!src) return;
+        whenDomReady(function(){
+            var logos = document.querySelectorAll('[data-logo-target]');
+            Array.prototype.forEach.call(logos, function(logo){
+                logo.onload = function(){
+                    logo.classList.add('logo-loaded');
+                    if (logo.parentNode) logo.parentNode.classList.add('has-logo');
+                };
+                logo.onerror = function(){
+                    logo.classList.remove('logo-loaded');
+                    if (logo.parentNode) logo.parentNode.classList.remove('has-logo');
+                };
+                logo.src = src;
+            });
+        });
+    }
+
+    function loadFilozofLogo(){
+        fetch(logoIssueUrl, { credentials: 'same-origin', headers: { 'Accept': 'application/json' } })
+            .then(function(response){
+                var contentType = response && response.headers ? (response.headers.get('content-type') || '') : '';
+                if (response.status !== 200 || contentType.indexOf('application/json') === -1) return null;
+                return response.json();
+            })
+            .then(function(data){
+                var attachments = data && data.fields && Array.isArray(data.fields.attachment) ? data.fields.attachment : [];
+                var targetName = foldText(logoFileName);
+                var match = attachments.filter(function(attachment){
+                    return foldText(attachment.filename) === targetName;
+                })[0] || attachments.filter(function(attachment){
+                    return (attachment.mimeType || '').indexOf('image/') === 0;
+                })[0];
+                setFilozofLogo(resolveAttachmentUrl(match));
+            })
+            .catch(function(){});
+    }
+
+    function loadServerLogo(){
+        if (!serverLogoUrl) {
+            loadFilozofLogo();
+            return;
+        }
+        if (!window.fetch || !window.URL || !window.URL.createObjectURL) {
+            setFilozofLogo(withAssetVersion(serverLogoUrl));
+            return;
+        }
+        fetch(withAssetVersion(serverLogoUrl), { credentials: 'same-origin', headers: { 'Accept': '*/*' } })
+            .then(function(response){
+                var contentType = response && response.headers ? (response.headers.get('content-type') || '') : '';
+                if (!response || response.status !== 200 || contentType.indexOf('image/') !== 0) {
+                    throw new Error('server-logo');
+                }
+                return response.blob();
+            })
+            .then(function(blob){
+                setFilozofLogo(window.URL.createObjectURL(blob));
+            })
+            .catch(function(){
+                loadFilozofLogo();
+            });
+    }
+
+    function isVideoAttachment(attachment){
+        var mime = normalizeText(attachment && attachment.mimeType);
+        var name = attachment && attachment.filename ? attachment.filename : '';
+        return mime.indexOf('video/') === 0 || /\\.(mp4|m4v|mov|webm)\$/i.test(name);
+    }
+
+    function pickVideoAttachment(attachments){
+        var items = Array.isArray(attachments) ? attachments : [];
+        var targetName = foldText(videoFileName);
+        if (targetName) {
+            var named = items.filter(function(attachment){
+                return foldText(attachment.filename) === targetName;
+            })[0];
+            if (named) return named;
+        }
+        return items.filter(isVideoAttachment)[0] || null;
+    }
+
+    function setIntroVideoStatus(message, isError){
+        whenDomReady(function(){
+            var status = document.getElementById('introVideoStatus');
+            if (!status) return;
+            status.textContent = message || '';
+            status.classList.toggle('is-error', !!isError);
+        });
+    }
+
+    function readResponseText(response){
+        if (!response || !response.text) return Promise.resolve('');
+        return response.text()
+            .then(function(text){
+                return (text || '').replace(/\\s+/g, ' ').trim().slice(0, 260);
+            })
+            .catch(function(){
+                return '';
+            });
+    }
+
+    function assetProbeUrl(src){
+        if (!src) return '';
+        return src + (src.indexOf('?') === -1 ? '?' : '&') + 'probe=1';
+    }
+
+    function validateVideoAsset(src){
+        if (!window.fetch) return Promise.resolve(src);
+        return fetch(assetProbeUrl(src), { credentials: 'same-origin', headers: { 'Accept': '*/*' } })
+            .then(function(response){
+                var contentType = response && response.headers ? (response.headers.get('content-type') || '') : '';
+                var status = response ? response.status : 'yok';
+                if (!response || response.status !== 200 || contentType.indexOf('application/json') === -1) {
+                    return readResponseText(response).then(function(text){
+                        throw new Error('Video endpoint hatasi: status=' + status + ', type=' + (contentType || '-') + (text ? ', body=' + text : ''));
+                    });
+                }
+                return response.json().then(function(data){
+                    var mimeType = data && data.mimeType ? data.mimeType : '';
+                    var length = data && data.length ? Number(data.length) : 0;
+                    if (data && data.success === true && mimeType.indexOf('video/') === 0 && length > 0) return src;
+                    var detail = '';
+                    try {
+                        detail = JSON.stringify(data || {}).slice(0, 260);
+                    } catch (e) {}
+                    throw new Error('Video endpoint hatasi: status=' + status + ', type=' + (contentType || '-') + (detail ? ', body=' + detail : ''));
+                });
+            })
+            .catch(function(error){
+                if (error && error.message && error.message.indexOf('Video endpoint hatasi:') === 0) throw error;
+                throw new Error('Video endpoint istegi basarisiz: ' + ((error && error.message) ? error.message : 'bilinmeyen hata'));
+            });
+    }
+
+    function isIntroVideoOpen(){
+        var modal = document.getElementById('introVideoModal');
+        return !!(modal && modal.getAttribute('aria-hidden') === 'false');
+    }
+
+    function setIntroVideoPlayerSource(src){
+        if (!src) return;
+        introVideoSrc = src;
+        whenDomReady(function(){
+            var player = document.getElementById('introVideoPlayer');
+            if (!player) return;
+            if (!isIntroVideoOpen()) return;
+            player.onerror = function(){
+                introVideoLoading = false;
+                var code = player.error ? player.error.code : '-';
+                setIntroVideoStatus('Video player oynatamadi. errorCode=' + code + ', endpoint=' + src, true);
+            };
+            player.onloadedmetadata = function(){
+                introVideoLoading = false;
+                setIntroVideoStatus('', false);
+            };
+            if (player.getAttribute('src') !== src) {
+                setIntroVideoStatus('Video yukleniyor...', false);
+                player.src = src;
+                player.load();
+            }
+        });
+    }
+
+    function resolveIntroVideoSrc(){
+        if (introVideoSrc) return Promise.resolve(introVideoSrc);
+        if (serverVideoUrl) {
+            var src = withAssetVersion(serverVideoUrl);
+            return validateVideoAsset(src).then(function(validSrc){
+                setIntroVideoPlayerSource(validSrc);
+                return validSrc;
+            });
+        }
+        if (!window.fetch || !videoIssueUrl) {
+            return Promise.reject(new Error('video-source'));
+        }
+        return fetch(videoIssueUrl, { credentials: 'same-origin', headers: { 'Accept': 'application/json' } })
+            .then(function(response){
+                var contentType = response && response.headers ? (response.headers.get('content-type') || '') : '';
+                if (response.status !== 200 || contentType.indexOf('application/json') === -1) throw new Error('video-issue');
+                return response.json();
+            })
+            .then(function(data){
+                var attachments = data && data.fields && Array.isArray(data.fields.attachment) ? data.fields.attachment : [];
+                var match = pickVideoAttachment(attachments);
+                var src = resolveAttachmentUrl(match);
+                if (!src) throw new Error('video-attachment');
+                setIntroVideoPlayerSource(src);
+                return src;
+            });
+    }
+
+    function ensureIntroVideoLoaded(){
+        if (introVideoLoading) return;
+        introVideoLoading = true;
+        setIntroVideoStatus('Video hazırlanıyor...', false);
+        resolveIntroVideoSrc()
+            .then(function(src){
+                setIntroVideoPlayerSource(src);
+            })
+            .catch(function(error){
+                setIntroVideoStatus((error && error.message) ? error.message : 'Video dosyasi bulunamadi veya erisim izni yok.', true);
+            })
+            .then(function(){
+                introVideoLoading = false;
+            });
+    }
+
+    function stopIntroVideo(){
+        var player = document.getElementById('introVideoPlayer');
+        if (!player) return;
+        try {
+            player.pause();
+        } catch (e) {}
+        player.removeAttribute('src');
+        player.load();
+    }
+
+    window.openIntroVideo = function(){
+        whenDomReady(function(){
+            var modal = document.getElementById('introVideoModal');
+            if (!modal) return;
+            modal.style.display = 'flex';
+            modal.setAttribute('aria-hidden', 'false');
+            document.body.classList.add('video-modal-open');
+            ensureIntroVideoLoaded();
+        });
+    };
+
+    window.closeIntroVideo = function(){
+        whenDomReady(function(){
+            var modal = document.getElementById('introVideoModal');
+            if (modal) {
+                modal.style.display = 'none';
+                modal.setAttribute('aria-hidden', 'true');
+            }
+            document.body.classList.remove('video-modal-open');
+            stopIntroVideo();
+        });
+    };
+
+    whenDomReady(function(){
+        document.addEventListener('keydown', function(event){
+            if (event.key === 'Escape') window.closeIntroVideo();
+        });
+    });
+
+    function collectGroupNames(user){
+        if (!user || !user.groups) return [];
+        var groups = user.groups;
+        var items = [];
+        if (Array.isArray(groups)) {
+            items = groups;
+        } else if (Array.isArray(groups.items)) {
+            items = groups.items;
+        } else if (Array.isArray(groups.values)) {
+            items = groups.values;
+        } else if (Array.isArray(groups.groups)) {
+            items = groups.groups;
+        }
+        return items.map(function(group){
+            if (typeof group === 'string') return group;
+            return group.name || group.displayName || group.groupName || '';
+        }).filter(Boolean);
+    }
+
+    function sameGroup(actual, expected){
+        var left = foldText(actual);
+        var right = foldText(expected);
+        return left === right || left.replace(/\\s+/g, '') === right.replace(/\\s+/g, '');
+    }
+
+    function hasAnyGroup(groupNames, candidates){
+        return groupNames.some(function(groupName){
+            return candidates.some(function(candidate){
+                return sameGroup(groupName, candidate);
+            });
+        });
+    }
+
+    function activeRolesForUser(user){
+        var groupNames = collectGroupNames(user);
+        if (!groupNames.length) return ['business', 'pmo', 'it'];
+        if (hasAnyGroup(groupNames, ['jira-administrators'])) return ['business', 'pmo', 'it'];
+
+        var roles = [];
+        if (hasAnyGroup(groupNames, ['AtlasBt', 'FibaBt'])) roles.push('it');
+        if (hasAnyGroup(groupNames, ['AtlasisBirimi', 'Atlas İş Birimi', 'Atlas Is Birimi'])) roles.push('business');
+        if (hasAnyGroup(groupNames, ['Proje ve Portföy Yönetimi Ofisi', 'Proje ve Portfoy Yonetimi Ofisi', 'PMO'])) roles.push('pmo');
+        return roles;
+    }
+
+    function setRoleSectionState(section, active){
+        section.classList.toggle('role-active', active);
+        section.classList.toggle('role-inactive', !active);
+        section.setAttribute('aria-disabled', active ? 'false' : 'true');
+        var cards = section.querySelectorAll('.card');
+        Array.prototype.forEach.call(cards, function(card){
+            card.setAttribute('aria-disabled', active ? 'false' : 'true');
+            card.title = active ? '' : 'Bu bölüm rolünüz için pasif';
+        });
+    }
+
+    function applyRoleAccess(user){
+        var roles = activeRolesForUser(user);
+        var roleNames = ['business', 'pmo', 'it'];
+        roleNames.forEach(function(roleName){
+            var active = roles.indexOf(roleName) !== -1;
+            var sections = document.querySelectorAll('[data-role-section="' + roleName + '"]');
+            Array.prototype.forEach.call(sections, function(section){
+                setRoleSectionState(section, active);
+            });
+        });
+    }
+
+    function statusMode(status){
+        var v = normalizeText(status);
+        if (v.indexOf('olgunluk kontrol') !== -1 || v.indexOf('olg. kont') !== -1) return 'control';
+        if (v.indexOf('olgunlaştırma') !== -1 || v.indexOf('olgunlastirma') !== -1) return 'maturity';
+        if (v.indexOf('önceliklendirme') !== -1 || v.indexOf('onceliklendirme') !== -1) return 'prioritization';
+        if (v.indexOf('backlog') !== -1 || v.indexOf('talebe dönüştürüldü') !== -1 || v.indexOf('talebe donusturuldu') !== -1) return 'backlog';
+        if (v.indexOf('iş list') !== -1 || v.indexOf('is list') !== -1) return 'worklist';
+        return 'other';
+    }
+
+    function hasValue(value){
+        var text = (value || '').toString().trim();
+        return text !== '' && text !== '-';
+    }
+
+    function userTokens(user){
+        if (!user) return [];
+        return [user.key, user.name, user.displayName]
+            .map(normalizeText)
+            .filter(Boolean);
+    }
+
+    function isCurrentUserIssue(issue, user){
+        var mineTokens = userTokens(user);
+        if (!mineTokens.length || !issue) return false;
+        var reporterTokens = [issue.reporterKey, issue.reporterName, issue.reporter]
+            .map(normalizeText)
+            .filter(Boolean);
+        return reporterTokens.some(function(token){ return mineTokens.indexOf(token) !== -1; });
+    }
+
+    function extractGGroupCodes(values){
+        var items = Array.isArray(values) ? values : [values];
+        var codes = [];
+        items.forEach(function(value){
+            var text = (value || '').toString();
+            var matches = text.match(/\\bG\\d+\\b/gi) || [];
+            matches.forEach(function(code){
+                var normalized = code.toUpperCase();
+                if (codes.indexOf(normalized) === -1) codes.push(normalized);
+            });
+        });
+        return codes;
+    }
+
+    function fieldMatchesCurrentGroups(fieldValue, user){
+        var userGroups = collectGroupNames(user);
+        var fieldText = (fieldValue || '').toString();
+        if (!fieldText || fieldText === '-') return false;
+        var normalizedField = foldText(fieldText);
+        var directMatch = userGroups.some(function(groupName){
+            var normalizedGroup = foldText(groupName);
+            return normalizedField === normalizedGroup || normalizedField.indexOf(normalizedGroup) !== -1 || normalizedGroup.indexOf(normalizedField) !== -1;
+        });
+        if (directMatch) return true;
+        var userCodes = extractGGroupCodes(userGroups);
+        var fieldCodes = extractGGroupCodes(fieldText);
+        return userCodes.some(function(code){ return fieldCodes.indexOf(code) !== -1; });
+    }
+
+    function isPortfolioMineOrEmpty(issue, user){
+        if (!issue) return false;
+        if (!hasValue(issue.portfoy)) return true;
+        var portfoyToken = normalizeText(issue.portfoy);
+        return userTokens(user).some(function(token){ return token && (portfoyToken === token || portfoyToken.indexOf(token) !== -1); });
+    }
+
+    function parseIssueDate(value){
+        var text = (value || '').toString().trim();
+        if (!text || text === '-') return null;
+        var parsed = Date.parse(text.replace(' ', 'T'));
+        return isNaN(parsed) ? null : new Date(parsed);
+    }
+
+    function isWithinDays(value, days){
+        var date = parseIssueDate(value);
+        if (!date) return false;
+        var now = new Date();
+        var end = new Date(now.getTime() + (days * 24 * 60 * 60 * 1000));
+        return date >= now && date <= end;
+    }
+
+    function setText(id, value){
+        var el = document.getElementById(id);
+        if (el) el.textContent = value;
+    }
+
+    function setCount(id, value){
+        setText(id, (typeof value === 'number' && isFinite(value)) ? value.toString() : '-');
+    }
+
+    function renderHubMetrics(issues, user){
+        var stats = {
+            total: issues.length,
+            mine: 0,
+            mineControl: 0,
+            control: 0,
+            maturity: 0,
+            prioritization: 0,
+            backlog: 0,
+            worklist: 0,
+            converted: 0,
+            portfolioMineOrEmpty: 0,
+            teamIdeas: 0,
+            responsibleIdeas: 0,
+            pmoOpen: 0,
+            pmoMissingOwner: 0,
+            meetingSoon: 0,
+            itOpen: 0,
+            itNeedsScore: 0
+        };
+
+        issues.forEach(function(issue){
+            var mode = statusMode(issue.status);
+            var mine = isCurrentUserIssue(issue, user);
+            var converted = hasValue(issue.filozofConvertedRequest);
+            if (mine) stats.mine += 1;
+            if (mine && mode === 'control') stats.mineControl += 1;
+            if (mode === 'control') stats.control += 1;
+            if (mode === 'maturity') stats.maturity += 1;
+            if (mode === 'prioritization') stats.prioritization += 1;
+            if (mode === 'backlog') stats.backlog += 1;
+            if (mode === 'worklist') stats.worklist += 1;
+            if (converted) stats.converted += 1;
+            if (converted && isPortfolioMineOrEmpty(issue, user)) stats.portfolioMineOrEmpty += 1;
+            if (fieldMatchesCurrentGroups(issue.businessAuthGroup, user)) stats.teamIdeas += 1;
+            if (fieldMatchesCurrentGroups(issue.anaSorumluGrup, user)) stats.responsibleIdeas += 1;
+            if (mode === 'control' || mode === 'maturity' || mode === 'prioritization') stats.pmoOpen += 1;
+            if ((mode === 'control' || mode === 'maturity' || mode === 'prioritization') && !hasValue(issue.portfoy)) stats.pmoMissingOwner += 1;
+            if (isWithinDays(issue.meetingDate, 7)) stats.meetingSoon += 1;
+            if (mode === 'maturity') stats.itOpen += 1;
+            if (mode === 'maturity' && (!hasValue(issue.itScore) || !hasValue(issue.anaSorumluBirim))) stats.itNeedsScore += 1;
+        });
+
+        setCount('badgeIdeaTotal', stats.control);
+        setCount('badgeBusinessTeamIdeas', stats.teamIdeas);
+        setCount('badgeBusinessAllIdeas', stats.total);
+        setCount('badgeRequestTotal', stats.converted);
+        setCount('badgePmoIdea', stats.control);
+        setCount('badgePmoAllIdeas', stats.total);
+        setCount('badgePmoRequest', stats.converted);
+        setCount('badgePmoControl', stats.control);
+        setCount('badgeItIdea', stats.control);
+        setCount('badgeItMaturity', stats.maturity);
+        setCount('badgeItBacklog', stats.backlog);
+        setCount('badgeItResponsible', stats.responsibleIdeas);
+        setCount('badgeItAllIdeas', stats.total);
+        setCount('badgeItRequest', stats.converted);
+    }
+
+    function loadHubMetrics(user){
+        fetch(searchUrl, { credentials: 'same-origin', headers: { 'Accept': 'application/json' } })
+            .then(function(response){
+                var contentType = response && response.headers ? (response.headers.get('content-type') || '') : '';
+                if (response.status !== 200 || contentType.indexOf('application/json') === -1) throw new Error('metrics');
+                return response.json();
+            })
+            .then(function(data){
+                renderHubMetrics(data.issues || [], user || data.currentUser || {});
+            })
+            .catch(function(){});
+    }
+
+    function loadPortfolioMetrics(){
+        fetch(portfolioSearchUrl, { credentials: 'same-origin', headers: { 'Accept': 'application/json' } })
+            .then(function(response){
+                var contentType = response && response.headers ? (response.headers.get('content-type') || '') : '';
+                if (response.status !== 200 || contentType.indexOf('application/json') === -1) throw new Error('portfolioMetrics');
+                return response.json();
+            })
+            .then(function(data){
+                setCount('badgePmoPortfolio', (data.issues || []).length);
+            })
+            .catch(function(){});
+    }
+
+    function loadUserProfile(){
+        fetch(myselfUrl, { credentials: 'same-origin', headers: { 'Accept': 'application/json' } })
+            .then(function(response){
+                var contentType = response && response.headers ? (response.headers.get('content-type') || '') : '';
+                if (response.status !== 200 || contentType.indexOf('application/json') === -1) return null;
+                return response.json();
+            })
+            .then(function(user){
+                whenDomReady(function(){
+                    renderUserProfile(user);
+                    applyRoleAccess(user);
+                    loadHubMetrics(user);
+                    loadPortfolioMetrics();
+                });
+            })
+            .catch(function(){
+                whenDomReady(function(){
+                    applyRoleAccess(null);
+                    loadHubMetrics(null);
+                    loadPortfolioMetrics();
+                });
+            });
+    }
+
+    if (window.fetch) {
+        fetch(sessionUrl, { credentials: 'same-origin', headers: { 'Accept': 'application/json' } })
+            .then(function(response){
+                var url = response && response.url ? response.url : '';
+                var contentType = response && response.headers ? (response.headers.get('content-type') || '') : '';
+                if (response.status !== 200 || contentType.indexOf('application/json') === -1 || (response.redirected && url.indexOf('/login.jsp') !== -1) || url.indexOf('/login.jsp') !== -1) {
+                    goLogin();
+                    return;
+                }
+                loadServerLogo();
+                loadUserProfile();
+            })
+            .catch(function(){ goLogin(); });
+    } else {
+        goLogin();
+    }
+})();
+</script>
+
+<style>
+body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial;
+    background: #F4F5F7;
+    color: #172B4D;
+    position: relative;
+}
+
+/* === FIBABANKA TAVŞANI (ARKA PLAN) === */
+body::before {
+    content: "";
+    position: fixed;
+    top: 55%;
+    left: 60%;
+    width: 620px;
+    height: 620px;
+    background-image: url("https://atlas.fibabanka.local/jira/secure/attachment/167800/fibabanka-screenshot.avif");
+    background-repeat: no-repeat;
+    background-size: contain;
+    background-position: center;
+    opacity: 0.10;
+    transform: translate(-50%, -50%);
+    z-index: 0;
+    pointer-events: none;
+}
+
+/* HEADER */
+.header {
+    background: #2F5DA9;
+    height: 65px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 0 30px;
+    color: white;
+    font-weight: 600;
+    font-size: 18px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    position: relative;
+    z-index: 2;
+}
+
+.header-brand {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    min-width: 0;
+    flex: 1 1 auto;
+}
+
+.header-main-title {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.logo-shell {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    background: #EAF4FF;
+    color: #0052CC;
+    font-weight: 900;
+    flex: 0 0 auto;
+}
+
+.logo-shell img {
+    display: none;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.logo-shell.has-logo img {
+    display: block;
+}
+
+.logo-shell.has-logo .logo-fallback {
+    display: none;
+}
+
+.header-logo-shell {
+    width: 42px;
+    height: 42px;
+    border: 2px solid rgba(255,255,255,0.72);
+    border-radius: 50%;
+    background: #FFFFFF;
+    box-shadow: 0 1px 5px rgba(9,30,66,0.18);
+    font-size: 14px;
+}
+
+.user-profile {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    color: #FFFFFF;
+    text-decoration: none;
+    border: 1px solid rgba(255,255,255,0.35);
+    border-radius: 8px;
+    padding: 6px 8px;
+    background: rgba(255,255,255,0.10);
+    min-width: 0;
+    flex: 0 0 auto;
+}
+
+.user-profile:hover {
+    background: rgba(255,255,255,0.18);
+}
+
+.user-avatar {
+    width: 34px;
+    height: 34px;
+    border-radius: 50%;
+    background: #DEEBFF;
+    color: #0747A6;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 12px;
+    font-weight: 800;
+    background-size: cover;
+    background-position: center;
+    flex: 0 0 auto;
+}
+
+.user-avatar.image {
+    color: transparent;
+}
+
+.user-profile-text {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    line-height: 1.2;
+}
+
+.user-name {
+    font-size: 13px;
+    font-weight: 800;
+    max-width: 220px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.user-meta {
+    font-size: 11px;
+    font-weight: 600;
+    opacity: 0.82;
+    max-width: 220px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* CONTENT */
+.content {
+    padding: 25px;
+    position: relative;
+    z-index: 1;
+}
+
+.page-card {
+    background: rgba(255,255,255,0.94);
+    border-radius: 8px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    border: 1px solid #DFE1E6;
+    padding: 24px;
+}
+
+.page-title {
+    font-size: 20px;
+    font-weight: 700;
+    margin: 0 0 8px 0;
+    color: #172B4D;
+}
+
+.page-subtitle {
+    font-size: 13px;
+    color: #6B778C;
+    margin-bottom: 6px;
+}
+
+.intro-panel {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 320px;
+    gap: 20px;
+    align-items: stretch;
+    background: #FFFFFF;
+    border: 1px solid #DFE1E6;
+    border-radius: 8px;
+    padding: 20px;
+    margin: 18px 0 20px 0;
+}
+
+.intro-copy {
+    align-self: center;
+}
+
+.intro-kicker {
+    color: #0052CC;
+    font-size: 12px;
+    font-weight: 900;
+    letter-spacing: 0;
+    margin-bottom: 6px;
+}
+
+.intro-title {
+    font-size: 18px;
+    font-weight: 900;
+    color: #172B4D;
+}
+
+.intro-desc {
+    color: #42526E;
+    font-size: 13px;
+    line-height: 1.55;
+    margin-top: 8px;
+    max-width: 760px;
+}
+
+.intro-side {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 16px;
+}
+
+.intro-actions {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+}
+
+.intro-action {
+    border: 1px solid #DFE1E6;
+    border-radius: 6px;
+    background: #FFFFFF;
+    color: #42526E;
+    cursor: pointer;
+    font-size: 12px;
+    font-weight: 800;
+    padding: 9px 12px;
+    transition: 0.2s;
+}
+
+.intro-action.primary {
+    background: #0052CC;
+    border-color: #0052CC;
+    color: #FFFFFF;
+}
+
+.intro-action:hover {
+    background: #EBECF0;
+}
+
+.intro-action.primary:hover {
+    background: #0747A6;
+}
+
+.intro-logo-shell {
+    width: 110px;
+    height: 110px;
+    justify-self: end;
+    border: 4px solid #FFFFFF;
+    border-radius: 50%;
+    box-shadow: 0 3px 14px rgba(9,30,66,0.15);
+    font-size: 28px;
+    transition: transform 0.3s ease;
+}
+
+/* INTERAKTIF MASCOT & TALKING BUBBLE */
+.mascot-wrap {
+    position: relative;
+    display: inline-flex;
+    justify-content: flex-end;
+    align-items: center;
+    gap: 12px;
+    margin-top: 6px;
+}
+
+.mascot-wrap:hover .intro-logo-shell {
+    transform: scale(1.05) rotate(4deg);
+}
+
+.mascot-bubble {
+    position: relative;
+    white-space: nowrap;
+    border: 2px solid #2F5DA9;
+    background: #FFFFFF;
+    color: #2F5DA9;
+    border-radius: 20px;
+    padding: 10px 16px;
+    font-size: 13px;
+    font-weight: 800;
+    cursor: pointer;
+    box-shadow: 0 4px 12px rgba(9, 30, 66, 0.1);
+    z-index: 2;
+    transition: all 0.2s ease-in-out;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.mascot-bubble::after {
+    content: "";
+    position: absolute;
+    right: -7px;
+    top: 50%;
+    width: 10px;
+    height: 10px;
+    background: #FFFFFF;
+    border-top: 2px solid #2F5DA9;
+    border-right: 2px solid #2F5DA9;
+    transform: translateY(-50%) rotate(45deg);
+    transition: background 0.2s ease-in-out;
+}
+
+.mascot-bubble:hover {
+    background: #2F5DA9;
+    color: #FFFFFF;
+    transform: translateX(-3px);
+    box-shadow: 0 6px 16px rgba(47, 93, 169, 0.25);
+}
+
+.mascot-bubble:hover::after {
+    background: #2F5DA9;
+}
+
+.bubble-play {
+    display: inline-block;
+    font-size: 11px;
+}
+
+body.video-modal-open {
+    overflow: hidden;
+}
+
+.video-modal {
+    display: none;
+    position: fixed;
+    inset: 0;
+    z-index: 30;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    background: rgba(9,30,66,0.68);
+    box-sizing: border-box;
+}
+
+.video-modal-box {
+    width: min(960px, 100%);
+    max-height: calc(100vh - 48px);
+    display: flex;
+    flex-direction: column;
+    background: #FFFFFF;
+    border-radius: 8px;
+    box-shadow: 0 18px 48px rgba(9,30,66,0.32);
+    border: 1px solid rgba(255,255,255,0.24);
+    padding: 16px;
+    box-sizing: border-box;
+}
+
+.video-modal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 12px;
+}
+
+.video-modal-title {
+    font-size: 16px;
+    font-weight: 900;
+    color: #172B4D;
+}
+
+.video-modal-subtitle {
+    margin-top: 3px;
+    font-size: 12px;
+    font-weight: 700;
+    color: #6B778C;
+}
+
+.video-modal-close {
+    width: 34px;
+    height: 34px;
+    border: 1px solid #DFE1E6;
+    border-radius: 6px;
+    background: #FFFFFF;
+    color: #172B4D;
+    cursor: pointer;
+    font-size: 22px;
+    line-height: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 auto;
+}
+
+.video-modal-close:hover {
+    background: #EBECF0;
+}
+
+.video-player {
+    width: 100%;
+    aspect-ratio: 16 / 9;
+    border-radius: 6px;
+    background: #091E42;
+    display: block;
+}
+
+.video-status {
+    min-height: 18px;
+    margin-top: 10px;
+    font-size: 12px;
+    font-weight: 700;
+    color: #6B778C;
+    overflow-wrap: anywhere;
+}
+
+.video-status.is-error {
+    color: #DE350B;
+}
+
+/* GRID LAYOUT */
+.container {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 20px;
+}
+
+/* COLUMN / SECTION */
+.section {
+    background: #FFFFFF;
+    border-radius: 8px;
+    padding: 20px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+    border: 1px solid #DFE1E6;
+}
+
+.section.role-active {
+    border-color: #4C9AFF;
+    box-shadow: 0 0 0 1px rgba(76,154,255,0.16), 0 3px 10px rgba(9,30,66,0.08);
+}
+
+.section.role-inactive {
+    opacity: 0.46;
+    background: #F4F5F7;
+}
+
+.section h2 {
+    margin: 0 0 16px 0;
+    font-size: 16px;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: #172B4D;
+    border-bottom: 1px solid #EBECF0;
+    padding-bottom: 10px;
+}
+
+.section.role-active h2::after,
+.section.role-inactive h2::after {
+    margin-left: auto;
+    border-radius: 12px;
+    padding: 2px 8px;
+    font-size: 10px;
+    font-weight: 900;
+}
+
+.section.role-active h2::after {
+    content: "Aktif";
+    background: #DEEBFF;
+    color: #0747A6;
+}
+
+.section.role-inactive h2::after {
+    content: "Pasif";
+    background: #EBECF0;
+    color: #6B778C;
+}
+
+/* CARD */
+.card {
+    position: relative;
+    border: 1px solid #DFE1E6;
+    border-radius: 8px;
+    padding: 16px;
+    margin-bottom: 14px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    background: #FAFBFC;
+}
+
+.card:last-child {
+    margin-bottom: 0;
+}
+
+.card:hover {
+    background: #F4F8FF;
+    border-color: #4C9AFF;
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(9,30,66,0.10);
+}
+
+.section.role-inactive .card {
+    pointer-events: none;
+    cursor: not-allowed;
+}
+
+.section.role-inactive .card:hover {
+    background: #FAFBFC;
+    border-color: #DFE1E6;
+    transform: none;
+    box-shadow: none;
+}
+
+.card-title {
+    font-weight: 700;
+    font-size: 14px;
+    color: #172B4D;
+    padding-right: 38px;
+}
+
+.card-desc {
+    font-size: 12px;
+    color: #6B778C;
+    margin-top: 6px;
+    line-height: 1.5;
+}
+
+/* BADGE */
+.badge {
+    position: absolute;
+    top: 12px;
+    right: 12px;
+    min-width: 22px;
+    padding: 2px 7px;
+    border-radius: 12px;
+    font-size: 11px;
+    font-weight: 700;
+    text-align: center;
+    color: white;
+    box-sizing: border-box;
+}
+
+.badge.blue { background: #0052CC; }
+.badge.orange { background: #FF8B00; }
+.badge.red { background: #DE350B; }
+
+/* RESPONSIVE */
+@media (max-width: 1100px) {
+    .container {
+        grid-template-columns: repeat(2, 1fr);
+    }
+}
+
+@media (max-width: 700px) {
+    .content {
+        padding: 16px;
+    }
+
+    .page-card {
+        padding: 16px;
+    }
+
+    .container {
+        grid-template-columns: 1fr;
+    }
+
+    .intro-panel {
+        grid-template-columns: 1fr;
+        gap: 14px;
+    }
+
+    .intro-side {
+        align-items: flex-start;
+        order: -1;
+    }
+
+    .intro-actions {
+        justify-content: flex-start;
+    }
+
+    .intro-logo-shell {
+        width: 90px;
+        height: 90px;
+        justify-self: start;
+        font-size: 24px;
+    }
+
+    .mascot-wrap {
+        align-items: center;
+        justify-content: flex-start;
+        gap: 10px;
+    }
+
+    .mascot-bubble {
+        position: static;
+        order: 2;
+        transform: none;
+    }
+
+    .mascot-bubble::after {
+        display: none;
+    }
+
+    .mascot-bubble:hover {
+        transform: none;
+    }
+
+    .video-modal {
+        padding: 12px;
+    }
+
+    .video-modal-box {
+        max-height: calc(100vh - 24px);
+        padding: 12px;
+    }
+
+    .header {
+        padding: 0 16px;
+        font-size: 16px;
+    }
+
+    .header-logo-shell {
+        width: 34px;
+        height: 34px;
+        font-size: 12px;
+    }
+
+    .user-name {
+        max-width: 130px;
+    }
+
+    .user-meta {
+        display: none;
+    }
+}
+</style>
+</head>
+
+<body>
+
+<div class="header">
+    <div class="header-brand">
+        <span class="logo-shell header-logo-shell">
+            <img data-logo-target alt="Filozof logo">
+            <span class="logo-fallback">Fi</span>
+        </span>
+        <div class="header-main-title">Filozof Hub - Fikir ve Talep Asistanı</div>
+    </div>
+    <a id="userProfile" class="user-profile" href="/jira/secure/ViewProfile.jspa" title="Profil">
+        <span class="user-avatar">?</span>
+        <span class="user-profile-text">
+            <span class="user-name">Yükleniyor...</span>
+            <span class="user-meta">Profil</span>
+        </span>
+    </a>
+</div>
+
+<div class="content">
+    <div class="page-card">
+        <div class="page-title">Filozof Hub</div>
+        <div class="page-subtitle">Sohbetle fikir oluşturma ve rol bazlı takip ekranlarına hızlı erişim</div>
+
+        <div class="intro-panel">
+            <div class="intro-copy">
+                <div class="intro-kicker">Filozof Hub</div>
+                <div class="intro-title">Sohbetle fikir ve talep oluşturma noktası</div>
+                <div class="intro-desc">
+                    Filozof; fikirlerin yapay zekâ desteğiyle yapılandırılarak olgunlaştırıldığı, iş faydasına göre önceliklendirildiği ve uçtan uca yönetildiği yeni nesil AI destekli fikir ve talep yönetim platformudur.
+                </div>
+            </div>
+            <div class="intro-side">
+                <div class="intro-actions">
+                    <button class="intro-action primary" onclick="location.href='https://atlas.fibabanka.local/jira/rest/scriptrunner/latest/custom/filozof'">Fikir Oluştur</button>
+                </div>
+                <div class="mascot-wrap">
+                    <button type="button" class="mascot-bubble" onclick="openIntroVideo()" aria-label="Filozof tanıtım videosunu aç">
+                        <span class="bubble-play">▶</span>
+                        Filozof’u Tanı
+                    </button>
+                    <span class="logo-shell intro-logo-shell">
+                        <img data-logo-target alt="Filozof asistan logosu">
+                        <span class="logo-fallback">Fi</span>
+                    </span>
+                </div>
+            </div>
+        </div>
+
+        <div id="introVideoModal" class="video-modal" aria-hidden="true" onclick="if(event.target===this) closeIntroVideo()">
+            <div class="video-modal-box" role="dialog" aria-modal="true" aria-labelledby="introVideoTitle">
+                <div class="video-modal-header">
+                    <div>
+                        <div id="introVideoTitle" class="video-modal-title">Filozof Tanıtım Videosu</div>
+                        <div class="video-modal-subtitle">Filozof Hub</div>
+                    </div>
+                    <button type="button" class="video-modal-close" onclick="closeIntroVideo()" aria-label="Kapat">&times;</button>
+                </div>
+                <video id="introVideoPlayer" class="video-player" controls preload="metadata" playsinline></video>
+                <div id="introVideoStatus" class="video-status" aria-live="polite"></div>
+            </div>
+        </div>
+
+        <div class="container">
+
+            <!-- İş Birimleri -->
+            <div class="section" data-role-section="business">
+                <h2>🏢 İş Birimleri</h2>
+
+                <div class="card" onclick="location.href='https://atlas.fibabanka.local/jira/rest/scriptrunner/latest/custom/filozof'">
+                    <span class="badge blue">+</span>
+                    <div class="card-title">💬 Filozof ile Fikir Oluştur</div>
+                    <div class="card-desc">Sohbet ederek yeni fikir veya talep kaydı oluşturun</div>
+                </div>
+
+                <div class="card" onclick="location.href='https://atlas.fibabanka.local/jira/servicedesk/customer/user/approvals?approvalQueryType=myPending'">
+                    <span class="badge orange">!</span>
+                    <div class="card-title">⏳ Onayımda Bekleyen Fikirler</div>
+                    <div class="card-desc">Aksiyon bekleyen fikir onay kayıtları</div>
+                </div>
+
+                <div class="card" onclick="location.href='https://atlas.fibabanka.local/jira/rest/scriptrunner/latest/custom/olgunlastirma2Browser?pool=idea&role=business&scope=teamideas'">
+                    <span class="badge orange" id="badgeBusinessTeamIdeas">-</span>
+                    <div class="card-title">👥 Ekibimin Açtığı Fikirler</div>
+                    <div class="card-desc">İş birimi yetki grubumla eşleşen fikir kayıtları</div>
+                </div>
+
+                <div class="card" onclick="location.href='https://atlas.fibabanka.local/jira/rest/scriptrunner/latest/custom/olgunlastirma2Browser?pool=idea&scope=control'">
+                    <span class="badge blue" id="badgeIdeaTotal">-</span>
+                    <div class="card-title">🔍 Banka - Fikir Havuzu</div>
+                    <div class="card-desc">Olgunluk kontrolü statüsündeki banka fikirleri</div>
+                </div>
+
+                <div class="card" onclick="location.href='https://atlas.fibabanka.local/jira/rest/scriptrunner/latest/custom/olgunlastirma2Browser?pool=idea&scope=all'">
+                    <span class="badge blue" id="badgeBusinessAllIdeas">-</span>
+                    <div class="card-title">📚 Tüm Fikirler</div>
+                    <div class="card-desc">Filozof kapsamındaki tüm fikir kayıtları</div>
+                </div>
+
+                <div class="card" onclick="location.href='https://atlas.fibabanka.local/jira/rest/scriptrunner/latest/custom/olgunlastirma2Browser?pool=request&scope=converted'">
+                    <span class="badge blue" id="badgeRequestTotal">-</span>
+                    <div class="card-title">📊 Fikirden Talebe Dönüşen İşler</div>
+                    <div class="card-desc">Fikirden talebe dönüşen işlerdir</div>
+                </div>
+            </div>
+
+            <!-- PMO -->
+            <div class="section" data-role-section="pmo">
+                <h2>📊 PMO</h2>
+
+                <div class="card" onclick="location.href='https://atlas.fibabanka.local/jira/rest/scriptrunner/latest/custom/olgunlastirma2Browser?pool=idea&role=pmo&scope=control'">
+                    <span class="badge orange" id="badgePmoControl">-</span>
+                    <div class="card-title">🧭 Olgunluk Kontrolü Bekleyenler</div>
+                    <div class="card-desc">Kontrol, toplantı ve portföy aksiyonu bekleyen fikirler</div>
+                </div>
+
+                <div class="card" onclick="location.href='https://atlas.fibabanka.local/jira/rest/scriptrunner/latest/custom/olgunlastirma2Browser?pool=idea&role=pmo&scope=all'">
+                    <span class="badge blue" id="badgePmoAllIdeas">-</span>
+                    <div class="card-title">📚 Tüm Fikirler</div>
+                    <div class="card-desc">Filozof kapsamındaki tüm fikir kayıtları</div>
+                </div>
+
+                <div class="card" onclick="location.href='https://atlas.fibabanka.local/jira/rest/scriptrunner/latest/custom/olgunlastirma2Browser?pool=request&role=pmo&scope=myportfolio'">
+                    <span class="badge orange" id="badgePmoPortfolio">-</span>
+                    <div class="card-title">🗂️ Portföyümdeki Talepler</div>
+                    <div class="card-desc">Portföy yöneticisi ben olan veya portföy yöneticisi boş talepler</div>
+                </div>
+
+                <div class="card" onclick="location.href='https://atlas.fibabanka.local/jira/rest/scriptrunner/latest/custom/olgunlastirma2Browser?pool=request&role=pmo&scope=converted'">
+                    <span class="badge blue" id="badgePmoRequest">-</span>
+                    <div class="card-title">📊 Fikirden Talebe Dönüşen İşler</div>
+                    <div class="card-desc">Fikirden talebe dönüşen işlerdir</div>
+                </div>
+            </div>
+
+            <!-- IT -->
+            <div class="section" data-role-section="it">
+                <h2>🖥️ IT</h2>
+
+                <div class="card" onclick="location.href='https://atlas.fibabanka.local/jira/rest/scriptrunner/latest/custom/olgunlastirma2Browser?pool=idea&role=it&scope=maturity'">
+                    <span class="badge orange" id="badgeItMaturity">-</span>
+                    <div class="card-title">🛠️ IT Değerlendirmesi Bekleyenler</div>
+                    <div class="card-desc">Domain, efor, teknik paydaş ve IT skor aksiyonu bekleyen kayıtlar</div>
+                </div>
+
+                <div class="card" onclick="location.href='https://atlas.fibabanka.local/jira/rest/scriptrunner/latest/custom/olgunlastirma2Browser?pool=idea&role=it&scope=backlog'">
+                    <span class="badge blue" id="badgeItBacklog">-</span>
+                    <div class="card-title">📥 Önceliklendirilmiş Backlog İşleri</div>
+                    <div class="card-desc">Backlog statüsündeki fikir kayıtları</div>
+                </div>
+
+                <div class="card" onclick="location.href='https://atlas.fibabanka.local/jira/rest/scriptrunner/latest/custom/olgunlastirma2Browser?pool=idea&role=it&scope=responsibleideas'">
+                    <span class="badge orange" id="badgeItResponsible">-</span>
+                    <div class="card-title">🧭 Ana Sorumlu ve Teknik Paydaş Olduğum Fikirler</div>
+                    <div class="card-desc">IT Düzenle butonuyla </div>
+                </div>
+
+                <div class="card" onclick="location.href='https://atlas.fibabanka.local/jira/rest/scriptrunner/latest/custom/olgunlastirma2Browser?pool=idea&role=it&scope=all'">
+                    <span class="badge blue" id="badgeItAllIdeas">-</span>
+                    <div class="card-title">📚 Tüm Fikirler</div>
+                    <div class="card-desc">Filozof kapsamındaki tüm fikir kayıtları</div>
+                </div>
+
+                <div class="card" onclick="location.href='https://atlas.fibabanka.local/jira/rest/scriptrunner/latest/custom/olgunlastirma2Browser?pool=request&role=it&scope=converted'">
+                    <span class="badge blue" id="badgeItRequest">-</span>
+                    <div class="card-title">📊 Fikirden Talebe Dönüşen İşler</div>
+                    <div class="card-desc">Fikirden talebe dönüşen işlerdir</div>
+                </div>
+            </div>
+
+        </div>
+    </div>
+</div>
+
+</body>
+</html>
+"""
+
+    return Response.ok(html)
+        .type("text/html; charset=UTF-8")
+        .build()
+}
