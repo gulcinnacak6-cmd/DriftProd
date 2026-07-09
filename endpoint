@@ -1,4 +1,6 @@
+
 package Drift
+
 
 import com.onresolve.scriptrunner.runner.rest.common.CustomEndpointDelegate
 import groovy.transform.BaseScript
@@ -89,6 +91,7 @@ final String CF_ETKILENECEK_PAYDAS           = "customfield_10493"
 final String CF_OLGUNLASTIRMA_DURUMU         = "customfield_19815"
 final String CF_BUSINESS_AUTH_GROUP          = "customfield_10770"
 final String CF_ANA_SORUMLU_GRUP             = "customfield_20201"
+final String CF_TEKNIK_PAYDAS_GRUP           = "customfield_20202"
 
 final List<String> AUTH_FULL_ACCESS_GROUPS = [
     "jira-administrators",
@@ -254,11 +257,6 @@ def customFieldNameFallbacks = [
 def getFilozofExecutionUser = {
     def executionUser = userManager.getUserByKey(FILOZOF_EXECUTION_USER) ?: userManager.getUserByName(FILOZOF_EXECUTION_USER)
     if (!executionUser) {
-        def currentUser = ComponentAccessor.jiraAuthenticationContext.loggedInUser
-        if (currentUser) {
-            log.warn("Filozof execution user bulunamadi: ${FILOZOF_EXECUTION_USER}. Request user ile devam ediliyor: ${currentUser.name ?: currentUser.key}")
-            return currentUser
-        }
         throw new IllegalStateException("Filozof execution user bulunamadi: ${FILOZOF_EXECUTION_USER}")
     }
     executionUser
@@ -518,7 +516,7 @@ def getFieldValueAsString = { def issue, String fieldId ->
         }
         return val.toString()
     } catch (Exception e) {
-        log.warn("Custom field okunamadi. issue=${issue?.key}, field=${fieldId}, error=${e.class.simpleName}: ${e.message}")
+        log.warn("Custom field read skipped. issue=${issue?.key}, fieldId=${fieldId}, error=${e.class.simpleName}: ${e.message}")
         return "-"
     }
 }
@@ -1520,61 +1518,6 @@ def affectedDomainLevelFromEffortText = { def effortText ->
 }
 
 /* =========================================================
-   DIAGNOSTIC
-   GET /rest/scriptrunner/latest/custom/filozofDiag
-   Script yukleniyor mu ve temel servisler erisilebilir mi kontrol eder.
-   ========================================================= */
-
-filozofDiag(
-    httpMethod: "GET"
-) { MultivaluedMap qp ->
-    try {
-        def requestUser = ComponentAccessor.jiraAuthenticationContext.loggedInUser
-        def executionUser = null
-        def executionUserError = ""
-        try {
-            executionUser = getFilozofExecutionUser()
-        } catch (Exception ex) {
-            executionUserError = "${ex.class.simpleName}: ${ex.message}".toString()
-        }
-
-        return Response.ok(JsonOutput.toJson([
-            success: true,
-            script : "endpointProd.groovy",
-            packageName: "Drift",
-            requestUser: [
-                key        : requestUser?.key ?: "",
-                name       : requestUser?.name ?: "",
-                displayName: requestUser?.displayName ?: ""
-            ],
-            executionUser: [
-                key        : executionUser?.key ?: "",
-                name       : executionUser?.name ?: "",
-                displayName: executionUser?.displayName ?: "",
-                error      : executionUserError
-            ],
-            fields: [
-                filozofSource       : getCf(CF_FILOZOF_SOURCE) != null,
-                convertedRequest    : getCf(CF_FILOZOF_CONVERTED_REQUEST) != null,
-                portfoyYoneticisi   : getCf(CF_PORTFOY_YONETICISI) != null,
-                businessAuthGroup   : getCf(CF_BUSINESS_AUTH_GROUP) != null,
-                anaSorumluGrup      : getCf(CF_ANA_SORUMLU_GRUP) != null,
-                domainOptions       : getCf(CF_DOMAIN_ADI_OPTIONS) != null
-            ]
-        ]))
-            .type(MediaType.APPLICATION_JSON)
-            .build()
-    } catch (Exception e) {
-        log.error("Filozof diagnostic error", e)
-        return Response.status(500)
-            .entity(JsonOutput.toJson([success: false, message: "${e.class.simpleName}: ${e.message}".toString()]))
-            .type(MediaType.APPLICATION_JSON)
-            .build()
-    }
-}
-
-
-/* =========================================================
    0) NAVIGATION ASSET API
    GET /rest/scriptrunner/latest/custom/navigationHubAsset?type=logo|video
    ========================================================= */
@@ -1701,9 +1644,6 @@ olgunlastirmaSearch(
             .build()
     }
 
-    try {
-    def requestId = UUID.randomUUID().toString()
-    log.warn("Olgunlastirma search start. requestId=${requestId}, user=${requestUser?.name ?: requestUser?.key}, params=${qp}")
     def executionUser = getFilozofExecutionUser()
     def searchService = ComponentAccessor.getComponent(SearchService)
 
@@ -1719,6 +1659,8 @@ olgunlastirmaSearch(
     def portfoyCustomId = CF_PORTFOY_YONETICISI.replace("customfield_", "")
     def businessAuthGroupCustomId = CF_BUSINESS_AUTH_GROUP.replace("customfield_", "")
     def anaSorumluGroupCustomId = CF_ANA_SORUMLU_GRUP.replace("customfield_", "")
+    def teknikPaydasGroupCustomId = CF_TEKNIK_PAYDAS_GRUP.replace("customfield_", "")
+
     def driftIssueScopeJql = "(issuetype = Fikir OR (issuetype = Talep AND cf[${sourceCustomId}] = \"Filozof\"))"
     def convertedRequestJql = "cf[${convertedRequestCustomId}] is not EMPTY"
 
@@ -1728,7 +1670,11 @@ olgunlastirmaSearch(
         jqlUser = requestUser
         jql = "project = HC AND ${driftIssueScopeJql} AND (cf[${portfoyCustomId}] = \"${requestUserSicilForJql}\" OR cf[${portfoyCustomId}] is EMPTY) ORDER BY created DESC"
     } else if (scope in ["teamideas", "ekibim", "ekibiminfikirleri"]) {
-        jql = "project = HC AND ${driftIssueScopeJql} AND cf[${businessAuthGroupCustomId}] in groupsOfUser(\"${requestUserSicilForJql}\") ORDER BY created DESC"
+        jql = "project = HC AND \"Channel Type (Custom)\" = Filozof AND cf[10770] in groupsOfUser(\"${requestUserSicilForJql}\") ORDER BY created DESC"
+    
+    } else if (scope in ["itownedideas", "anasorumluteknikpaydas", "anasorumluteknikpaydasoldugumfikirler"]) {
+        jql = "project = HC AND \"Channel Type (Custom)\" = Filozof AND (cf[${anaSorumluGroupCustomId}] in groupsOfUser(\"${requestUserSicilForJql}\") OR cf[${teknikPaydasGroupCustomId}] in groupsOfUser(\"${requestUserSicilForJql}\")) ORDER BY created DESC"
+    
     } else if (scope in ["responsibleideas", "anasorumlu", "anasorumluoldugumfikirler"]) {
         jql = "project = HC AND ${driftIssueScopeJql} AND cf[${anaSorumluGroupCustomId}] in groupsOfUser(\"${requestUserSicilForJql}\") ORDER BY created DESC"
     } else if (pool == "request" || scope in ["converted", "talebedonusen", "talebedonusenisler"]) {
@@ -1744,23 +1690,17 @@ olgunlastirmaSearch(
     } else {
         jql = "project = HC AND ${driftIssueScopeJql} ORDER BY created DESC"
     }
-    log.warn("Olgunlastirma search JQL. requestId=${requestId}, jqlUser=${jqlUser?.name ?: jqlUser?.key}, jql=${jql}")
-    def parseResult = searchService.parseQuery(jqlUser, jql)
+    try {
+        def parseResult = searchService.parseQuery(jqlUser, jql)
 
     if (!parseResult.valid) {
-        def parseErrorCollection = null
-        try {
-            parseErrorCollection = parseResult.errors
-        } catch (Exception ignored) {}
-        def parseErrors = parseErrorCollection ? errorCollectionToText(parseErrorCollection) : "JQL parse edilemedi."
         return Response.status(400)
-            .entity(JsonOutput.toJson([success: false, message: "Geçersiz JQL sorgusu: ${parseErrors}".toString(), jql: jql]))
+            .entity(JsonOutput.toJson([success: false, message: "Geçersiz JQL sorgusu."]))
             .type(MediaType.APPLICATION_JSON)
             .build()
     }
 
     def results = searchService.search(jqlUser, parseResult.query, PagerFilter.unlimitedFilter)
-    log.warn("Olgunlastirma search result. requestId=${requestId}, total=${results?.total}, resultSize=${results?.results?.size() ?: 0}")
 
     def issues = (results.results ?: []).collect { issue ->
         def rawStatus = issue.status?.name ?: "-"
@@ -1806,7 +1746,7 @@ olgunlastirmaSearch(
         ]
     }
 
-    return Response.ok(JsonOutput.toJson([
+        return Response.ok(JsonOutput.toJson([
         issues: issues,
         pool: pool,
         currentUser: [
@@ -1819,9 +1759,15 @@ olgunlastirmaSearch(
         .type(MediaType.APPLICATION_JSON)
         .build()
     } catch (Exception e) {
-        log.error("Olgunlastirma search error", e)
+        log.error("Olgunlastirma search error. pool=${pool}, role=${role}, scope=${scope}, jql=${jql}", e)
         return Response.status(500)
-            .entity(JsonOutput.toJson([success: false, message: "${e.class.simpleName}: ${e.message}".toString()]))
+            .entity(JsonOutput.toJson([
+                success: false,
+                message: "Liste verileri alinirken hata olustu: ${e.class.simpleName}: ${e.message}",
+                pool   : pool,
+                role   : role,
+                scope  : scope
+            ]))
             .type(MediaType.APPLICATION_JSON)
             .build()
     }
@@ -2527,63 +2473,7 @@ fibarprDomainOptions(
 
 
 /* =========================================================
-   7) IDEA UNITS
-   GET /rest/scriptrunner/latest/custom/fibarprIdeaUnits
-   Olgunluk kontrol paydas secimi icin domain/birim listesini dondurur.
-   ========================================================= */
-
-fibarprIdeaUnits(
-    httpMethod: "GET"
-) { MultivaluedMap qp ->
-
-    def requestUser = ComponentAccessor.jiraAuthenticationContext.loggedInUser
-    if (!requestUser) {
-        return Response.status(401)
-            .entity(JsonOutput.toJson([success: false, message: "Giris gerekli."]))
-            .type(MediaType.APPLICATION_JSON)
-            .build()
-    }
-
-    try {
-        def cf = getCf(CF_DOMAIN_ADI_OPTIONS)
-        if (!cf) {
-            return Response.status(404)
-                .entity(JsonOutput.toJson([success: false, message: "Birim/domain option field bulunamadi."]))
-                .type(MediaType.APPLICATION_JSON)
-                .build()
-        }
-
-        def optionValues = []
-
-        cf.configurationSchemes?.each { scheme ->
-            scheme.configs?.values()?.each { config ->
-                optionValues.addAll(optionsManager.getOptions(config) ?: [])
-            }
-        }
-
-        def items = optionValues
-            .findAll { it && !it.disabled }
-            .collect { it.value?.toString()?.trim() }
-            .findAll { it }
-            .unique()
-            .sort { it.toLowerCase(new Locale("tr", "TR")) }
-            .collect { [value: it, label: it] }
-
-        return Response.ok(JsonOutput.toJson([items: items]))
-            .type(MediaType.APPLICATION_JSON)
-            .build()
-    } catch (Exception e) {
-        log.error("Fibarpr idea units error", e)
-        return Response.status(500)
-            .entity(JsonOutput.toJson([success: false, message: "${e.class.simpleName}: ${e.message}".toString()]))
-            .type(MediaType.APPLICATION_JSON)
-            .build()
-    }
-}
-
-
-/* =========================================================
-   8) USER PICKER
+   7) USER PICKER
    GET /rest/scriptrunner/latest/custom/userSearch?q=ali
    ========================================================= */
 
@@ -2617,4 +2507,3 @@ userSearch(
         .type(MediaType.APPLICATION_JSON)
         .build()
 }
-
