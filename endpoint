@@ -1,0 +1,2620 @@
+package Drift
+
+import com.onresolve.scriptrunner.runner.rest.common.CustomEndpointDelegate
+import groovy.transform.BaseScript
+
+import javax.ws.rs.core.MultivaluedMap
+import javax.ws.rs.core.Response
+import javax.ws.rs.core.MediaType
+import javax.servlet.http.HttpServletRequest
+
+import com.atlassian.jira.component.ComponentAccessor
+import com.atlassian.jira.bc.issue.search.SearchService
+import com.atlassian.jira.web.bean.PagerFilter
+import com.atlassian.jira.issue.MutableIssue
+import com.atlassian.jira.event.type.EventDispatchOption
+import com.atlassian.jira.user.ApplicationUser
+import com.atlassian.jira.issue.customfields.option.Option
+import com.atlassian.jira.util.io.InputStreamConsumer
+
+import groovy.json.JsonOutput
+import groovy.json.JsonSlurper
+
+import java.sql.Timestamp
+import java.text.SimpleDateFormat
+import java.util.Locale
+import java.math.RoundingMode
+
+import org.apache.http.client.methods.HttpGet
+import org.apache.http.client.utils.URIBuilder
+import org.apache.http.impl.client.HttpClients
+import org.apache.http.util.EntityUtils
+
+@BaseScript CustomEndpointDelegate delegate
+
+/* =========================================================
+   CUSTOM FIELD ID TANIMLARI
+   Bunları ortamındaki gerçek ID'lerle değiştir
+   ========================================================= */
+
+// IT
+final String CF_IT_TSHIRT_SIZE        = "customfield_19809"
+final String CF_IT_DOMAIN_EFOR        = "customfield_19203"
+final String CF_IT_ETKILENEN_DOMAIN   = "customfield_20204"
+final String CF_IT_ALTYAPI_ETKISI     = "customfield_20101"
+final String CF_IT_ENTEGRASYON_ETKISI = "customfield_20102"
+final String CF_IT_MEVCUT_SISTEM_ETKISI = "customfield_20103"
+final String CF_IT_TEST_YAYINLAMA      = "customfield_20104"
+final String CF_IT_DIS_BAGIMLILIK      = "customfield_20105"
+final String CF_DOMAIN_ADI_OPTIONS     = "customfield_10494"
+final String CF_IT_DIGER_DOMAINLER     = "customfield_20004"
+final String CF_TEKNIK_PAYDASLAR       = "customfield_20004"
+final String CF_IT_DOMAIN_EFOR_TEXT    = "customfield_20005"
+
+// Önceliklendirme
+final String CF_PRIORITY_BUSINESS_SCORE = "customfield_20106"
+final String CF_PRIORITY_IT_SCORE       = "customfield_20107"
+final String CF_PRIORITY_ONCELIK        = "customfield_10424"
+final String CF_DEGERLENDIRME_DURUMU    = "customfield_20203"
+
+final String EVAL_STATUS_IT       = "IT Değerlendirdi"
+final String EVAL_STATUS_BUSINESS = "İş Birimi Değerlendirdi"
+final String EVAL_STATUS_DONE     = "Değerlendirme Tamamlandı"
+
+// İş birimi skor alanlari
+final String CF_BU_SCOPE_GROWTH_INDIVIDUAL      = "customfield_20007"
+final String CF_BU_SCOPE_GROWTH_CORPORATE       = "customfield_20008"
+final String CF_BU_SCOPE_OPERATION              = "customfield_20009"
+final String CF_BU_OPERATIONAL_GAIN             = "customfield_20010"
+final String CF_BU_FINANCIAL_GROWTH_INDIVIDUAL  = "customfield_20011"
+final String CF_BU_FINANCIAL_GROWTH_CORPORATE   = "customfield_20012"
+final String CF_BU_CUSTOMER_EFFECT              = "customfield_20013"
+final String CF_BU_OPERATIONAL_FIN_RISK         = "customfield_20014"
+
+// Opsiyonel - katılımcı alanları
+final String CF_KATILIMCI_KULLANICILAR = "customfield_12328"
+final String CF_KATILIMCI_MAILLER      = "customfield_20200"
+final String CF_MAIL_SUBJECT           = "customfield_10554"
+final String CF_MAIL_CONTENT           = "customfield_10555"
+
+// Sık kullanılan field ID'ler
+final String CF_MEETING_DATE                 = "customfield_19816"
+final String CF_ACIL_TALEP_MI                = "customfield_13327"
+final String CF_HC_TALEP_TIPI                = "customfield_10400"
+final String CF_PORTFOY_YONETICISI           = "customfield_10961"
+final String CF_REPORTER_BIRIM               = "customfield_10743"
+final String CF_PORTFOY_NOTU                 = "customfield_20100"
+final String CF_ETKILENECEK_PAYDAS_ACIKLAMA  = "customfield_19811"
+final String CF_ETKILENECEK_PAYDAS           = "customfield_10493"
+final String CF_OLGUNLASTIRMA_DURUMU         = "customfield_19815"
+final String CF_BUSINESS_AUTH_GROUP          = "customfield_10770"
+final String CF_ANA_SORUMLU_GRUP             = "customfield_20201"
+
+final List<String> AUTH_FULL_ACCESS_GROUPS = [
+    "jira-administrators",
+    "Proje ve Portföy Yönetimi Ofisi",
+    "Proje ve Portfoy Yonetimi Ofisi",
+    "Portföy Yönetimi Ofisi",
+    "Portfoy Yonetimi Ofisi",
+    "PMO"
+]
+
+// Havuz liste alanlari - ortamdaki gercek custom field ID'leri netlesince doldurulacak.
+final String CF_YEAR                          = "REPLACE_CUSTOMFIELD_YEAR"
+final String CF_BUSINESS_GMY                  = "customfield_15721"
+final String CF_BUSINESS_DIREKTORLUK          = "customfield_12204"
+final String CF_BUSINESS_MUDURLUK             = "customfield_10745"
+final String CF_TY_KEY                        = "customfield_10475"
+final String CF_FILOZOF_SOURCE                = "customfield_18003"
+final String CF_TALEP_SKORU                   = "customfield_20006"
+final String CF_FILOZOF_CONVERTED_REQUEST     = "customfield_10475"
+final String CF_DEPLOY_DATE                   = "REPLACE_CUSTOMFIELD_DEPLOY_DATE"
+
+final List<String> TY_EPIC_CHILD_ISSUE_TYPES = [
+    "Story",
+    "KKT",
+    "Fonksiyonel Test",
+    "Teknik Tasarım",
+    "Teknik Tasarim",
+    "Analiz",
+    "Geliştirme",
+    "Gelistirme"
+]
+final List<String> TY_STANDALONE_TASK_ISSUE_TYPES = ["Task", "Görev", "Gorev"]
+
+// Jira workflow transition ID'leri
+// Placeholder degerleri ortamdaki sayisal Jira transition ID'leri ile degistir.
+final Map<String, String> TRANSITION_IDS_BY_KEY = [
+    olgunlukKontrolTamamlandi: "31",
+    acilTalepOlgunlukKontrolTamamlandi: "301",
+    olgunlastirmaTamamlandi  : "41",
+    backlogAlindi            : "51",
+    isListesineAlindi        : "61",
+    duzeltmeyeGonder         : "281",
+    olgunlukKontroluneDon    : "221"
+]
+
+// Fikir / geliştirme alanları
+final String CF_AMAC                     = "customfield_19801"
+final String CF_PROBLEM                  = "customfield_19802"
+final String CF_KPI                      = "customfield_19806"
+final String CF_MEVCUT_DURUM             = "customfield_19804"
+final String CF_COZUM_TIPI               = "customfield_19803"
+final String CF_HEDEF_KITLE              = "customfield_19805"
+final String CF_ETKILENECEK_KANALLAR     = "customfield_10427"
+final String CF_COUNTLY_ENTEGRASYONU     = "customfield_12118"
+final String CF_COUNTLY_ACIKLAMA         = "customfield_19810"
+final String CF_NPS_TAKIP                = "customfield_10722"
+final String CF_NPS_ACIKLAMA             = "customfield_19812"
+final String CF_UI_ETKISI                = "customfield_16503"
+final String CF_UI_ACIKLAMA              = "customfield_19813"
+final String CF_DIS_SISTEM_ENTEGRASYONU  = "customfield_10927"
+final String CF_RAPORLAMA_ACIKLAMA       = "customfield_19814"
+
+final List<Map> BUSINESS_SCORE_GROUPS = [
+    [
+        key   : "scope",
+        label : "Etkilenen Kitle / Süreç Kapsamı",
+        weight: 0.20G,
+        fields: [
+            [
+                id     : "edit_bus_scope_growth_individual",
+                fieldId: CF_BU_SCOPE_GROWTH_INDIVIDUAL,
+                label  : "Growth / Gelir Artışı - Bireysel Müşteri"
+            ],
+            [
+                id     : "edit_bus_scope_growth_corporate",
+                fieldId: CF_BU_SCOPE_GROWTH_CORPORATE,
+                label  : "Growth / Gelir Artışı - Tüzel Müşteri"
+            ],
+            [
+                id     : "edit_bus_scope_operation",
+                fieldId: CF_BU_SCOPE_OPERATION,
+                label  : "Operasyon / Verimlilik Talepleri"
+            ]
+        ]
+    ],
+    [
+        key   : "operationalGain",
+        label : "Operasyonel Kazanım",
+        weight: 0.25G,
+        fields: [[
+            id     : "edit_bus_operational_gain",
+            fieldId: CF_BU_OPERATIONAL_GAIN,
+            label  : "Operasyonel Kazanım"
+        ]]
+    ],
+    [
+        key   : "financialEffect",
+        label : "Finansal Etki",
+        weight: 0.30G,
+        fields: [
+            [
+                id     : "edit_bus_financial_growth_individual",
+                fieldId: CF_BU_FINANCIAL_GROWTH_INDIVIDUAL,
+                label  : "Growth / Gelir Artışı - Bireysel Müşteri"
+            ],
+            [
+                id     : "edit_bus_financial_growth_corporate",
+                fieldId: CF_BU_FINANCIAL_GROWTH_CORPORATE,
+                label  : "Growth / Gelir Artışı - Tüzel Müşteri"
+            ]
+        ]
+    ],
+    [
+        key   : "customerEffect",
+        label : "Müşteri Etkisi",
+        weight: 0.15G,
+        fields: [[
+            id     : "edit_bus_customer_effect",
+            fieldId: CF_BU_CUSTOMER_EFFECT,
+            label  : "Müşteri Etkisi"
+        ]]
+    ],
+    [
+        key   : "operationalFinancialRisk",
+        label : "Operasyonel/Finansal Risk",
+        weight: 0.10G,
+        fields: [[
+            id     : "edit_bus_operational_fin_risk",
+            fieldId: CF_BU_OPERATIONAL_FIN_RISK,
+            label  : "Operasyonel/Finansal Risk"
+        ]]
+    ]
+]
+
+/* =========================================================
+   YARDIMCI FONKSIYONLAR
+   ========================================================= */
+
+def cfManager = ComponentAccessor.customFieldManager
+def optionsManager = ComponentAccessor.optionsManager
+def userManager = ComponentAccessor.userManager
+def groupManager = ComponentAccessor.groupManager
+def issueManager = ComponentAccessor.issueManager
+def attachmentManager = ComponentAccessor.attachmentManager
+def issueLinkManager = ComponentAccessor.getIssueLinkManager()
+def jqlSearchService = ComponentAccessor.getComponent(SearchService)
+
+final String FILOZOF_EXECUTION_USER = "admin"
+final String NAV_ASSET_ISSUE_KEY = "P16-4768"
+final String NAV_LOGO_FILE_NAME = "fi.png"
+final String NAV_VIDEO_FILE_NAME = "Filozof.mp4"
+
+def customFieldNameFallbacks = [
+    (CF_IT_ETKILENEN_DOMAIN): [
+        "Etkilenen Domain Adedi",
+        "Etkilenen Domain Sayısı",
+        "Etkilenen Domain Adet",
+        "Etkilenen Domain/Ekip Adedi",
+        "Etkilenen Domain"
+    ]
+]
+
+def getFilozofExecutionUser = {
+    def executionUser = userManager.getUserByKey(FILOZOF_EXECUTION_USER) ?: userManager.getUserByName(FILOZOF_EXECUTION_USER)
+    if (!executionUser) {
+        def currentUser = ComponentAccessor.jiraAuthenticationContext.loggedInUser
+        if (currentUser) {
+            log.warn("Filozof execution user bulunamadi: ${FILOZOF_EXECUTION_USER}. Request user ile devam ediliyor: ${currentUser.name ?: currentUser.key}")
+            return currentUser
+        }
+        throw new IllegalStateException("Filozof execution user bulunamadi: ${FILOZOF_EXECUTION_USER}")
+    }
+    executionUser
+}
+
+def asFilozofExecutionUser = { Closure work ->
+    def authContext = ComponentAccessor.jiraAuthenticationContext
+    def originalUser = authContext.loggedInUser
+    try {
+        authContext.setLoggedInUser(getFilozofExecutionUser())
+        return work()
+    } finally {
+        authContext.setLoggedInUser(originalUser)
+    }
+}
+
+def navAttachmentName = { attachment ->
+    try {
+        return attachment?.filename?.toString() ?: ""
+    } catch (Exception ignored) {
+        return ""
+    }
+}
+
+def navAssetFileName = { String type ->
+    type == "logo" ? NAV_LOGO_FILE_NAME : (type == "video" ? NAV_VIDEO_FILE_NAME : "")
+}
+
+def navMimeType = { String filename ->
+    def lower = (filename ?: "").toLowerCase(Locale.ENGLISH)
+    if (lower.endsWith(".png")) return "image/png"
+    if (lower.endsWith(".jpg") || lower.endsWith(".jpeg")) return "image/jpeg"
+    if (lower.endsWith(".gif")) return "image/gif"
+    if (lower.endsWith(".webp")) return "image/webp"
+    if (lower.endsWith(".mp4") || lower.endsWith(".m4v")) return "video/mp4"
+    if (lower.endsWith(".mov")) return "video/quicktime"
+    if (lower.endsWith(".webm")) return "video/webm"
+    "application/octet-stream"
+}
+
+def navAttachmentFile = { attachment, String expectedFilename ->
+    def errors = []
+
+    try {
+        def directFile = attachmentManager.getAttachmentFile(attachment)
+        if (directFile) {
+            return [file: directFile, error: ""]
+        }
+        errors << "getAttachmentFile null dondu"
+    } catch (Exception ex) {
+        errors << "getAttachmentFile: ${ex.class.simpleName}: ${ex.message}"
+    }
+
+    try {
+        def attachmentId = attachment?.id?.toString() ?: "unknown"
+        def safeFilename = (expectedFilename ?: "asset.bin").replaceAll("[^A-Za-z0-9._-]", "_")
+        def cacheDir = new File(System.getProperty("java.io.tmpdir"), "filozof-navigation-assets")
+        if (!cacheDir.exists() && !cacheDir.mkdirs()) {
+            return [file: null, error: (errors + "cache klasoru olusturulamadi: ${cacheDir.absolutePath}").join(" | ")]
+        }
+
+        def cacheFile = new File(cacheDir, "${attachmentId}-${safeFilename}")
+        if (cacheFile.exists() && cacheFile.length() > 0L) {
+            return [file: cacheFile, error: ""]
+        }
+
+        def tmpFile = new File(cacheDir, "${attachmentId}-${safeFilename}.tmp")
+        if (tmpFile.exists()) {
+            tmpFile.delete()
+        }
+
+        attachmentManager.streamAttachmentContent(attachment, { input ->
+            tmpFile.withOutputStream { output ->
+                byte[] buffer = new byte[8192]
+                int bytesRead = input.read(buffer)
+                while (bytesRead != -1) {
+                    output.write(buffer, 0, bytesRead)
+                    bytesRead = input.read(buffer)
+                }
+            }
+            true
+        } as InputStreamConsumer<Boolean>)
+
+        if (!tmpFile.exists() || tmpFile.length() <= 0L) {
+            return [file: null, error: (errors + "streamAttachmentContent bos dosya uretti").join(" | ")]
+        }
+
+        if (cacheFile.exists()) {
+            cacheFile.delete()
+        }
+        if (!tmpFile.renameTo(cacheFile)) {
+            cacheFile = tmpFile
+        }
+        cacheFile.deleteOnExit()
+        return [file: cacheFile, error: ""]
+    } catch (Exception ex) {
+        errors << "streamAttachmentContent: ${ex.class.simpleName}: ${ex.message}"
+    }
+
+    [file: null, error: errors.findAll { it }.join(" | ")]
+}
+
+def navRangeFile = { File sourceFile, long start, long end, String filename ->
+    def safeFilename = (filename ?: sourceFile.name ?: "asset.bin").replaceAll("[^A-Za-z0-9._-]", "_")
+    def rangeDir = new File(System.getProperty("java.io.tmpdir"), "filozof-navigation-asset-ranges")
+    if (!rangeDir.exists() && !rangeDir.mkdirs()) {
+        throw new IOException("Range cache klasoru olusturulamadi: ${rangeDir.absolutePath}")
+    }
+
+    long contentLength = end - start + 1L
+    def rangeFile = new File(rangeDir, "${sourceFile.name.hashCode()}-${sourceFile.length()}-${start}-${end}-${safeFilename}")
+    if (rangeFile.exists() && rangeFile.length() == contentLength) {
+        return rangeFile
+    }
+
+    def tmpFile = new File(rangeDir, "${rangeFile.name}.tmp")
+    if (tmpFile.exists()) {
+        tmpFile.delete()
+    }
+
+    byte[] buffer = new byte[8192]
+    sourceFile.withInputStream { input ->
+        long skipped = 0L
+        while (skipped < start) {
+            long skippedNow = input.skip(start - skipped)
+            if (skippedNow <= 0L) {
+                if (input.read() == -1) break
+                skippedNow = 1L
+            }
+            skipped += skippedNow
+        }
+
+        tmpFile.withOutputStream { output ->
+            long remaining = contentLength
+            while (remaining > 0L) {
+                int readSize = remaining > buffer.length ? buffer.length : remaining as int
+                int bytesRead = input.read(buffer, 0, readSize)
+                if (bytesRead == -1) break
+                output.write(buffer, 0, bytesRead)
+                remaining -= bytesRead
+            }
+        }
+    }
+
+    if (!tmpFile.exists() || tmpFile.length() <= 0L) {
+        throw new IOException("Range dosyasi olusturulamadi: ${start}-${end}")
+    }
+
+    if (rangeFile.exists()) {
+        rangeFile.delete()
+    }
+    if (!tmpFile.renameTo(rangeFile)) {
+        rangeFile = tmpFile
+    }
+    rangeFile.deleteOnExit()
+    rangeFile
+}
+
+def navAssetIssue = {
+    def issue = issueManager.getIssueObject(NAV_ASSET_ISSUE_KEY)
+    if (issue) return issue
+    try {
+        return issueManager.getIssueByCurrentKey(NAV_ASSET_ISSUE_KEY)
+    } catch (Exception ignored) {
+        return null
+    }
+}
+
+def navAttachmentSummary = { attachments ->
+    def names = (attachments ?: []).collect { attachment ->
+        def name = navAttachmentName(attachment) ?: "(isimsiz)"
+        def mimeType = navMimeType(name)
+        mimeType ? "${name} [${mimeType}]" : name
+    }
+    if (!names) return "-"
+    names.take(8).join(", ") + (names.size() > 8 ? ", ..." : "")
+}
+
+def navResolveAsset = { String type ->
+    asFilozofExecutionUser {
+        def expectedFilename = navAssetFileName(type)?.toString()?.trim()
+        if (!expectedFilename) {
+            return [success: false, status: 500, message: "Asset dosya adi tanimli degil. type=${type}"]
+        }
+
+        def issue = navAssetIssue()
+        if (!issue) {
+            return [success: false, status: 404, message: "Asset issue bulunamadi: ${NAV_ASSET_ISSUE_KEY}"]
+        }
+
+        def attachments = attachmentManager.getAttachments(issue) ?: []
+        if (!attachments) {
+            return [success: false, status: 404, message: "Asset issue attachment icermiyor: ${NAV_ASSET_ISSUE_KEY}"]
+        }
+
+        def attachment = attachments.find { navAttachmentName(it) == expectedFilename }
+        if (!attachment) {
+            return [success: false, status: 404, message: "Asset attachment bulunamadi. type=${type}, beklenen=${expectedFilename}, issue=${NAV_ASSET_ISSUE_KEY}, mevcut=${navAttachmentSummary(attachments)}"]
+        }
+
+        def fileResult = navAttachmentFile(attachment, expectedFilename)
+        def file = fileResult.file
+        if (!file) {
+            return [success: false, status: 404, message: "Attachment file okunamadi. attachment=${expectedFilename}, detay=${fileResult.error ?: '-'}"]
+        }
+
+        if (!file.exists()) {
+            return [success: false, status: 404, message: "Attachment file disk uzerinde bulunamadi. attachment=${expectedFilename}"]
+        }
+
+        long fileLength = file.length()
+        if (fileLength <= 0L) {
+            return [success: false, status: 404, message: "Attachment file bos. attachment=${expectedFilename}"]
+        }
+
+        [
+            success : true,
+            file    : file,
+            filename: expectedFilename,
+            mimeType: navMimeType(expectedFilename),
+            length  : fileLength
+        ]
+    }
+}
+
+def getCf = { String id ->
+    if (!id) return null
+
+    if (!id.startsWith("REPLACE_")) {
+        def byId = cfManager.getCustomFieldObject(id)
+        if (byId) return byId
+    }
+
+    def fallbackNames = customFieldNameFallbacks[id] ?: []
+    if (!fallbackNames) return null
+
+    cfManager.getCustomFieldObjects()?.find { cf ->
+        fallbackNames.any { expectedName ->
+            cf?.name?.toString()?.equalsIgnoreCase(expectedName?.toString())
+        }
+    }
+}
+
+def getFieldValueAsString = { def issue, String fieldId ->
+    try {
+        def cf = getCf(fieldId)
+        if (!cf) return "-"
+        def val = issue.getCustomFieldValue(cf)
+        if (val == null) return "-"
+        if (val instanceof java.util.Date) return val.format("yyyy-MM-dd HH:mm")
+        if (val instanceof ApplicationUser) return val.displayName ?: "-"
+        if (val instanceof Option) return val.value ?: "-"
+        if (val instanceof Collection) return val.collect { it instanceof Option ? it.value : it?.toString() }.findAll { it }.join(", ") ?: "-"
+        if (fieldId == CF_PORTFOY_YONETICISI) {
+            def portfoyUser = userManager.getUserByKey(val.toString()) ?: userManager.getUserByName(val.toString())
+            if (portfoyUser) return portfoyUser.displayName ?: portfoyUser.key
+        }
+        return val.toString()
+    } catch (Exception e) {
+        log.warn("Custom field okunamadi. issue=${issue?.key}, field=${fieldId}, error=${e.class.simpleName}: ${e.message}")
+        return "-"
+    }
+}
+
+def getFieldValueOrBlank = { def issue, String fieldId ->
+    def value = getFieldValueAsString(issue, fieldId)
+    return value == "-" ? "" : value
+}
+
+def normalizeGroupName = { def value ->
+    def text = value?.toString()?.trim()
+    if (!text) return ""
+    def normalized = java.text.Normalizer.normalize(
+        text.toLowerCase(new Locale("tr", "TR")),
+        java.text.Normalizer.Form.NFD
+    )
+    normalized.replaceAll("\\p{M}", "").replace("ı", "i")
+}
+
+def issueTypeNameOf = { def issue ->
+    issue?.issueType?.name?.toString() ?: "-"
+}
+
+def issueStatusNameOf = { def issue ->
+    issue?.status?.name?.toString() ?: "-"
+}
+
+def isIssueTypeIn = { def issue, Collection<String> typeNames ->
+    def normalized = normalizeGroupName(issueTypeNameOf(issue))
+    (typeNames ?: []).any { normalizeGroupName(it) == normalized }
+}
+
+def isDeliveryIssue = { def issue ->
+    isIssueTypeIn(issue, ["Epic", "Teslimat"])
+}
+
+def issueInfoForTy = { def issue, String typeOverride = "" ->
+    [
+        key      : issue?.key ?: "-",
+        issueType: typeOverride ?: issueTypeNameOf(issue),
+        status   : issueStatusNameOf(issue)
+    ]
+}
+
+def cleanIssueKey = { def raw ->
+    def text = raw?.toString()?.trim()
+    if (!text || text == "-") return ""
+    def matcher = (text =~ /(?i)[A-Z][A-Z0-9]+-\d+/)
+    matcher.find() ? matcher.group(0).toUpperCase(Locale.ENGLISH) : text
+}
+
+def issueByKey = { String issueKey ->
+    if (!issueKey) return null
+    def found = issueManager.getIssueObject(issueKey)
+    if (found) return found
+    try {
+        return issueManager.getIssueByCurrentKey(issueKey)
+    } catch (Exception ignored) {
+        return null
+    }
+}
+
+def linkedIssuesOf = { def sourceIssue ->
+    if (!sourceIssue?.id) return []
+    def linked = []
+
+    try {
+        issueLinkManager.getOutwardLinks(sourceIssue.id)?.each { link ->
+            if (link?.destinationObject) linked << link.destinationObject
+        }
+    } catch (Exception ignored) {}
+
+    try {
+        issueLinkManager.getInwardLinks(sourceIssue.id)?.each { link ->
+            if (link?.sourceObject) linked << link.sourceObject
+        }
+    } catch (Exception ignored) {}
+
+    linked.findAll { it }.unique { it.key }
+}
+
+def epicChildrenFromJql = { def epicIssue ->
+    if (!epicIssue?.key) return []
+    try {
+        def executionUser = getFilozofExecutionUser()
+        def parseResult = jqlSearchService.parseQuery(executionUser, "\"Epic Link\" = ${epicIssue.key}")
+        if (!parseResult?.valid) return []
+        def results = jqlSearchService.search(executionUser, parseResult.query, PagerFilter.unlimitedFilter)
+        return (results.results ?: []).findAll { it }
+    } catch (Exception ignored) {
+        return []
+    }
+}
+
+def epicChildrenOf = { def epicIssue ->
+    def children = []
+    children.addAll(linkedIssuesOf(epicIssue))
+    children.addAll(epicChildrenFromJql(epicIssue))
+    children
+        .findAll { child -> child?.key != epicIssue?.key && isIssueTypeIn(child, TY_EPIC_CHILD_ISSUE_TYPES) }
+        .unique { it.key }
+        .sort { a, b -> (a.key ?: "") <=> (b.key ?: "") }
+}
+
+def buildTyGeneralInfo = { def sourceIssue ->
+    def tyKey = cleanIssueKey(getFieldValueOrBlank(sourceIssue, CF_TY_KEY))
+    if (!tyKey) {
+        return [
+            tyKey          : "",
+            message        : "TY kaydı bulunamadı.",
+            deliveries     : [],
+            standaloneTasks: []
+        ]
+    }
+
+    def tyIssue = issueByKey(tyKey)
+    if (!tyIssue) {
+        return [
+            tyKey          : tyKey,
+            message        : "TY kaydı bulunamadı.",
+            deliveries     : [],
+            standaloneTasks: []
+        ]
+    }
+
+    def directlyLinked = linkedIssuesOf(tyIssue)
+    def deliveryIssues = directlyLinked
+        .findAll { isDeliveryIssue(it) }
+        .unique { it.key }
+        .sort { a, b -> (a.key ?: "") <=> (b.key ?: "") }
+
+    def deliveries = deliveryIssues.collect { delivery ->
+        [
+            issue   : issueInfoForTy(delivery, "Teslimat"),
+            children: epicChildrenOf(delivery).collect { child -> issueInfoForTy(child) }
+        ]
+    }
+
+    def deliveryChildKeys = deliveries.collectMany { block -> (block.children ?: []).collect { it.key } }.findAll { it } as Set
+    def standaloneTasks = directlyLinked
+        .findAll { linked -> isIssueTypeIn(linked, TY_STANDALONE_TASK_ISSUE_TYPES) && !deliveryChildKeys.contains(linked.key) }
+        .unique { it.key }
+        .sort { a, b -> (a.key ?: "") <=> (b.key ?: "") }
+        .collect { task -> issueInfoForTy(task) }
+
+    [
+        tyKey          : tyKey,
+        message        : deliveries ? "" : "Henüz Teslimat oluşturulmadı.",
+        deliveries     : deliveries,
+        standaloneTasks: standaloneTasks
+    ]
+}
+
+def nameFromGroupValue = { def value ->
+    if (value == null) return ""
+    if (value instanceof Option) return value.value?.toString() ?: ""
+    if (value instanceof ApplicationUser) return value.key ?: value.name ?: value.displayName ?: ""
+
+    try {
+        def name = value.name
+        if (name) return name.toString()
+    } catch (Exception ignored) {}
+
+    try {
+        def name = value.getName()
+        if (name) return name.toString()
+    } catch (Exception ignored) {}
+
+    try {
+        def displayName = value.displayName
+        if (displayName) return displayName.toString()
+    } catch (Exception ignored) {}
+
+    value.toString()
+}
+
+def groupNamesFromValue
+groupNamesFromValue = { def value ->
+    if (value == null) return []
+    if (value instanceof Collection) {
+        return value.collectMany { groupNamesFromValue(it) }.findAll { it }.unique()
+    }
+    def groupName = nameFromGroupValue(value)?.trim()
+    groupName ? [groupName] : []
+}
+
+def getUserGroupNames = { ApplicationUser user ->
+    if (!user) return []
+
+    try {
+        def names = groupManager.getGroupNamesForUser(user)
+        if (names) return names.collect { it?.toString() }.findAll { it }.unique()
+    } catch (Exception ignored) {}
+
+    try {
+        def names = groupManager.getGroupNamesForUser(user.name)
+        if (names) return names.collect { it?.toString() }.findAll { it }.unique()
+    } catch (Exception ignored) {}
+
+    []
+}
+
+def hasAnyNamedGroup = { ApplicationUser user, Collection<String> candidates ->
+    def userGroups = getUserGroupNames(user).collect { normalizeGroupName(it) }
+    def expected = (candidates ?: []).collect { normalizeGroupName(it) }
+    userGroups.any { expected.contains(it) }
+}
+
+def extractGGroupCodes = { Collection groupNames ->
+    (groupNames ?: []).collectMany { raw ->
+        def matcher = ((raw ?: "").toString() =~ /(?i)\bG\d+\b/)
+        def codes = []
+        while (matcher.find()) {
+            codes << matcher.group().toUpperCase(Locale.ENGLISH)
+        }
+        codes
+    }.findAll { it }.unique()
+}
+
+def issueAuthGroupNames = { def issue, String fieldId ->
+    def cf = getCf(fieldId)
+    if (!cf || !issue) return []
+    groupNamesFromValue(issue.getCustomFieldValue(cf))
+}
+
+def userMatchesIssueGGroup = { ApplicationUser user, def issue, String fieldId ->
+    def issueGroups = issueAuthGroupNames(issue, fieldId)
+    if (!issueGroups) return false
+
+    if (hasAnyNamedGroup(user, issueGroups)) return true
+
+    def userCodes = extractGGroupCodes(getUserGroupNames(user))
+    if (!userCodes) return false
+
+    def issueCodes = extractGGroupCodes(issueGroups)
+    if (!issueCodes) return false
+
+    userCodes.any { issueCodes.contains(it) }
+}
+
+def hasFullOlgunlastirmaAccess = { ApplicationUser user ->
+    hasAnyNamedGroup(user, AUTH_FULL_ACCESS_GROUPS)
+}
+
+def statusModeForAuth = { def issue ->
+    def normalized = normalizeGroupName(issue?.status?.name ?: "")
+    if (normalized.contains("olgunluk kontrol") || normalized.contains("olg. kont")) return "control"
+    if (normalized.contains("olgunlastirma")) return "maturity"
+    if (normalized.contains("onceliklendirme")) return "prioritization"
+    if (normalized.contains("backlog") || normalized.contains("talebe donusturuldu")) return "backlog"
+    if (normalized.contains("is list")) return "worklist"
+    "readonly"
+}
+
+def authorizeOlgunlastirmaAction = { ApplicationUser user, def issue, String actionType, String editScope, Integer transitionId ->
+    if (hasFullOlgunlastirmaAccess(user)) {
+        return [success: true, fullAccess: true, scope: editScope ?: ""]
+    }
+
+    def normalizedAction = actionType?.toString()?.trim()?.toLowerCase(Locale.ENGLISH) ?: ""
+    def normalizedScope = editScope?.toString()?.trim()?.toLowerCase(Locale.ENGLISH) ?: ""
+    def mode = statusModeForAuth(issue)
+    def hasAnaSorumluGroupAccess = userMatchesIssueGGroup(user, issue, CF_ANA_SORUMLU_GRUP)
+    def requestedTransitionId = transitionId?.toString()?.trim()
+    def expectedWorkflowTransitionId = null
+    if (normalizedAction == "backlog") expectedWorkflowTransitionId = TRANSITION_IDS_BY_KEY.backlogAlindi?.toString()?.trim()
+    if (normalizedAction == "worklist") expectedWorkflowTransitionId = TRANSITION_IDS_BY_KEY.isListesineAlindi?.toString()?.trim()
+
+    if (expectedWorkflowTransitionId && requestedTransitionId == expectedWorkflowTransitionId && hasAnaSorumluGroupAccess) {
+        return [success: true, fullAccess: false, scope: "workflow"]
+    }
+
+    if (transitionId != null || ["complete", "backlog", "worklist"].contains(normalizedAction)) {
+        return [success: false, message: "Bu geçiş için Portföy Yönetimi Ofisi yetkisi gerekli."]
+    }
+
+    if (normalizedAction == "save" && mode == "maturity") {
+        if (normalizedScope == "business" && userMatchesIssueGGroup(user, issue, CF_BUSINESS_AUTH_GROUP)) {
+            return [success: true, fullAccess: false, scope: "business"]
+        }
+        if (normalizedScope == "it" && hasAnaSorumluGroupAccess) {
+            return [success: true, fullAccess: false, scope: "it"]
+        }
+        return [success: false, message: "Bu kayıtta düzenleme için ilgili G grubu eşleşmiyor."]
+    }
+
+    [success: false, message: "Bu statüde düzenleme için Portföy Yönetimi Ofisi yetkisi gerekli."]
+}
+
+def normalizeStatusText = { String status ->
+    (status ?: "").trim().toLowerCase(new Locale("tr", "TR"))
+}
+
+def displayStatusForPool = { String status, String pool ->
+    def raw = (status ?: "-").trim()
+    def normalized = normalizeStatusText(raw)
+
+    if (pool == "request") {
+        if (normalized == "backlog") return "Backlog"
+        if (normalized.contains("master plana alınması") || normalized.contains("master plana alinmasi")) return "Master Plana Alınması Bekleniyor"
+        if (normalized.contains("takvimlendiriliyor")) return "Master Plana Alındı - Takvimlendiriliyor"
+        if (normalized.contains("analiz")) return "Master Plana Alındı - Analiz"
+        if (normalized.contains("teknik tasarım") || normalized.contains("teknik tasarim")) return "Master Plana Alındı - Teknik Tasarım"
+        if (normalized.contains("fonksiyonel test")) return "Master Plana Alındı - Fonksiyonel Test"
+        if (normalized == "kkt" || normalized.contains("kkt")) return "Master Plana Alındı - KKT"
+        if (normalized.contains("tamamlandı") || normalized.contains("tamamlandi")) return "Tamamlandı"
+        return raw
+    }
+
+    if (normalized == "draft" || normalized == "draft fikir") return "Draft Fikir"
+    if (normalized == "onay bekleniyor" || normalized.contains("yönetici onayı") || normalized.contains("yonetici onayi")) return "Fikir Yönetici Onayı Bekleniyor"
+    if (normalized.contains("düzeltme") || normalized.contains("duzeltme") || normalized.contains("revize")) return "Fikir Düzeltme"
+    if (normalized == "olgunluk kontrolü" || normalized == "olgunluk kontrolu" || normalized.contains("olg. kont.")) return "Fikir Olg. Kont. Bekleniyor"
+    if (normalized == "olgunlaştırma" || normalized == "olgunlastirma" || normalized.contains("olgunlaştırma bekleniyor") || normalized.contains("olgunlastirma bekleniyor")) return "Fikir Olgunlaştırma Bekleniyor"
+    if (normalized == "backlog" || normalized.contains("talebe dönüştürüldü") || normalized.contains("talebe donusturuldu")) return "Fikir Talebe Dönüştürüldü -> Backlog"
+    if (normalized.contains("iptal")) return "İptal"
+    return raw
+}
+
+def isConvertedOrAfter = { String status ->
+    def normalized = normalizeStatusText(status)
+    return normalized.contains("backlog") ||
+        normalized.contains("master plana") ||
+        normalized.contains("tamamlandı") ||
+        normalized.contains("tamamlandi") ||
+        normalized.contains("iş listesi") ||
+        normalized.contains("is listesi") ||
+        normalized.contains("talebe dönüştürüldü") ||
+        normalized.contains("talebe donusturuldu")
+}
+
+def getIssueYear = { def issue ->
+    def yearValue = getFieldValueOrBlank(issue, CF_YEAR)
+    return yearValue ?: (issue.created ? issue.created.format("yyyy") : "")
+}
+
+def getCustomFieldOptions = { def cf, def issue ->
+    def optionValues = []
+
+    def config = issue ? cf.getRelevantConfig(issue) : null
+    if (config) {
+        optionValues.addAll(optionsManager.getOptions(config) ?: [])
+    }
+
+    if (!optionValues) {
+        cf.configurationSchemes?.each { scheme ->
+            scheme.configs?.values()?.each { cfg ->
+                optionValues.addAll(optionsManager.getOptions(cfg) ?: [])
+            }
+        }
+    }
+
+    optionValues.findAll { it && !it.disabled }.unique { opt -> opt.optionId ?: opt.value?.toString() }
+}
+
+def normalizeOptionText = { def value ->
+    def text = value?.toString()?.trim()
+    if (!text) return ""
+    def normalized = java.text.Normalizer.normalize(
+        text.toLowerCase(new Locale("tr", "TR")),
+        java.text.Normalizer.Form.NFD
+    )
+    normalized.replaceAll("\\p{M}", "").replace("ı", "i")
+}
+
+def findOptionByValue = { Collection options, String value ->
+    def normalized = value?.trim()
+    if (!normalized) return null
+    options.find { it.value?.toString() == normalized } ?:
+        options.find { it.value?.toString()?.equalsIgnoreCase(normalized) } ?:
+        options.find { normalizeOptionText(it.value) == normalizeOptionText(normalized) }
+}
+
+def itOptionAliasesByField = [
+    (CF_IT_ETKILENEN_DOMAIN): [
+        "Çok Düşük": "Sadece 1 domain/ekip etkileniyor.",
+        "Düşük"    : "2 farklı domain etkileniyor.",
+        "Orta"     : "3 farklı domain etkileniyor.",
+        "Yüksek"   : "4 farklı domain etkileniyor.",
+        "Çok Yüksek": "5 veya daha fazla domain etkileniyor."
+    ],
+    (CF_IT_ALTYAPI_ETKISI): [
+        "Çok Düşük": "Mevcut altyapı yeterli, değişiklik yok.",
+        "Orta"     : "Sunucu/kaynak artırımı veya küçük konfigürasyon gerekli.",
+        "Çok Yüksek": "Yeni sunucu, veritabanı veya network topolojisi kurulumu şart."
+    ],
+    (CF_IT_ENTEGRASYON_ETKISI): [
+        "Çok Düşük": "Dış sistem veya farklı modül entegrasyonu yok.",
+        "Orta"     : "Var olan entegrasyondaki değişiklikler.",
+        "Çok Yüksek": "Yeni entegrasyon (API/Servis) var."
+    ],
+    (CF_IT_MEVCUT_SISTEM_ETKISI): [
+        "Çok Düşük": "İzole bir geliştirme, mevcudu bozmaz.",
+        "Orta"     : "Mevcut akışlarda revizyon içeriyor.",
+        "Çok Yüksek": "Core sistemleri doğrudan değiştiriyor, riskli."
+    ],
+    (CF_IT_TEST_YAYINLAMA): [
+        "Çok Düşük": "Standart birim testi ve UAT (Kullanıcı Testi) gerektirir.",
+        "Düşük"    : "Entegrasyon testi gerektirir.",
+        "Yüksek"   : "Performans yük testi gerektirir."
+    ],
+    (CF_IT_DIS_BAGIMLILIK): [
+        "Çok Düşük": "Banka içi ürünler üzerinde geliştirilecektir.",
+        "Çok Yüksek": "3. parti bir firmaya veya dış API'ye bağımlı."
+    ]
+]
+
+def candidateOptionValues = { String fieldId, String value ->
+    def candidates = []
+    def addCandidate = { def candidate ->
+        def text = candidate?.toString()?.trim()
+        if (!text) return
+        if (!candidates.any { normalizeOptionText(it) == normalizeOptionText(text) }) {
+            candidates << text
+        }
+    }
+
+    addCandidate(value)
+
+    def aliases = itOptionAliasesByField[fieldId] ?: [:]
+    aliases.each { alias, description ->
+        if (normalizeOptionText(alias) == normalizeOptionText(value)) {
+            addCandidate(description)
+        }
+        if (normalizeOptionText(description) == normalizeOptionText(value)) {
+            addCandidate(alias)
+        }
+    }
+
+    candidates
+}
+
+def findOptionByFieldValue = { Collection options, String fieldId, String value ->
+    candidateOptionValues(fieldId, value)
+        .collect { candidate -> findOptionByValue(options, candidate) }
+        .find { it }
+}
+
+def optionText = { def option ->
+    option instanceof Option ? (option.value?.toString() ?: "") : (option?.toString() ?: "")
+}
+
+def getOptionParent = { def option ->
+    try {
+        return option?.parentOption
+    } catch (ignored) {
+        return null
+    }
+}
+
+def getOptionChildren = { def option ->
+    try {
+        return (option?.childOptions ?: []) as List
+    } catch (ignored) {
+        return []
+    }
+}
+
+def getCascadingFieldOptions = { def cf, def issue ->
+    def allOptions = getCustomFieldOptions(cf, issue)
+    def parents = allOptions.findAll { opt -> opt && !getOptionParent(opt) }
+
+    parents.collect { parent ->
+        def children = getOptionChildren(parent)
+        if (!children) {
+            children = allOptions.findAll { child ->
+                def parentOption = getOptionParent(child)
+                parentOption && parentOption.optionId == parent.optionId
+            }
+        }
+
+        [
+            value   : optionText(parent),
+            label   : optionText(parent),
+            children: children
+                .findAll { child -> child && !child.disabled }
+                .collect { child -> [value: optionText(child), label: optionText(child)] }
+                .findAll { child -> child.value }
+        ]
+    }.findAll { parent -> parent.value }
+}
+
+def getCascadingSelectedValue = { def rawValue ->
+    def parentOption = null
+    def childOption = null
+
+    if (rawValue instanceof Map) {
+        parentOption = rawValue[null] ?: rawValue.get(null) ?: rawValue["null"] ?: rawValue.get("null")
+        childOption = rawValue["1"] ?: rawValue.get("1") ?: rawValue[1] ?: rawValue.get(1)
+    } else if (rawValue instanceof Option) {
+        parentOption = rawValue
+    }
+
+    def parentText = optionText(parentOption)
+    def childText = optionText(childOption)
+    [
+        parent : parentText,
+        child  : childText,
+        display: [parentText, childText].findAll { it }.join(" / ")
+    ]
+}
+
+def setCascadingSelectField = { MutableIssue issue, String fieldId, String rawValue ->
+    def cf = getCf(fieldId)
+    if (!cf) return
+
+    def parts = (rawValue ?: "").toString().split("\\|\\|", -1).collect { it.trim() }
+    def parentValue = parts ? parts[0] : ""
+    def childValue = parts.size() > 1 ? parts[1] : ""
+
+    if (!parentValue) {
+        issue.setCustomFieldValue(cf, null)
+        return
+    }
+
+    def allOptions = getCustomFieldOptions(cf, issue)
+    def parentOptions = allOptions.findAll { opt -> opt && !getOptionParent(opt) }
+    def parentOption = findOptionByValue(parentOptions, parentValue) ?: findOptionByValue(allOptions, parentValue)
+
+    if (!parentOption) {
+        log.warn("Cascading parent option not found: ${fieldId} -> ${parentValue}")
+        return
+    }
+
+    def childOption = null
+    if (childValue) {
+        def childOptions = getOptionChildren(parentOption)
+        if (!childOptions) {
+            childOptions = allOptions.findAll { child ->
+                def parent = getOptionParent(child)
+                parent && parent.optionId == parentOption.optionId
+            }
+        }
+        childOption = findOptionByValue(childOptions, childValue)
+        if (!childOption) {
+            log.warn("Cascading child option not found: ${fieldId} -> ${parentValue} / ${childValue}")
+        }
+    }
+
+    def cascadeValue = new LinkedHashMap()
+    cascadeValue[null] = parentOption
+    if (childOption) cascadeValue["1"] = childOption
+    issue.setCustomFieldValue(cf, cascadeValue)
+}
+
+def setCustomFieldSmart = { MutableIssue issue, String fieldId, def rawValue ->
+    def cf = getCf(fieldId)
+    if (!cf) return
+
+    String value = rawValue?.toString()?.trim()
+    if (!value) {
+        issue.setCustomFieldValue(cf, null)
+        return
+    }
+
+    def typeKey = cf.customFieldType?.key?.toString()?.toLowerCase() ?: ""
+    String typeName = cf.customFieldType?.class?.simpleName ?: ""
+    if (typeKey.contains("cascadingselect")) {
+        setCascadingSelectField(issue, fieldId, value)
+        return
+    }
+
+    boolean isOptionField = typeKey.contains("select") ||
+        typeKey.contains("radio") ||
+        typeKey.contains("checkbox") ||
+        fieldId == CF_DOMAIN_ADI_OPTIONS
+    boolean isMulti = typeKey.contains("multiselect") ||
+        typeKey.contains("multi") ||
+        typeName.startsWith("Multi")
+    def options = getCustomFieldOptions(cf, issue)
+
+    if (options && !options.isEmpty()) {
+        if (isMulti) {
+            def selectedOptions = value.split(",")
+                .collect { it.trim() }
+                .findAll { it }
+                .collect { v -> findOptionByFieldValue(options, fieldId, v) }
+                .findAll { it }
+
+            if (selectedOptions) {
+                issue.setCustomFieldValue(cf, selectedOptions)
+            } else {
+                log.warn("Option field value not found: ${fieldId} -> ${value}; candidates=${candidateOptionValues(fieldId, value)}")
+            }
+        } else {
+            def selected = findOptionByFieldValue(options, fieldId, value)
+            if (selected) {
+                issue.setCustomFieldValue(cf, selected)
+            } else {
+                log.warn("Option field value not found: ${fieldId} -> ${value}; candidates=${candidateOptionValues(fieldId, value)}")
+            }
+        }
+        return
+    }
+
+    if (isOptionField) {
+        log.warn("Option field update skipped because options could not be resolved: ${fieldId} -> ${value}")
+        return
+    }
+
+    issue.setCustomFieldValue(cf, value)
+}
+
+def parsePaydasUnitNames = { def rawValue ->
+    def text = rawValue?.toString()?.trim()
+    if (!text || text == "-") return []
+
+    text.split(/\s*;\s*/).collectMany { part ->
+        def piece = part?.trim()
+        if (!piece) {
+            []
+        } else {
+
+            def marker = (piece =~ /(?iu)\s+-\s+G[öo]r[üu][şs](?:\s+Sahipleri)?\s*:/)
+            if (marker.find()) {
+                piece = piece.substring(0, marker.start()).trim()
+            } else if (piece.contains(":")) {
+                piece = piece.substring(0, piece.indexOf(":")).trim()
+            }
+
+            piece.split(/\s*,\s*/).collect { it?.trim() }.findAll { it }
+        }
+    }.unique()
+}
+
+def setMultiUserPickerField = { MutableIssue issue, String fieldId, List<String> userKeys ->
+    def cf = getCf(fieldId)
+    if (!cf) return
+    def users = (userKeys ?: [])
+        .collect { k -> userManager.getUserByKey(k?.toString()) }
+        .findAll { it }
+    issue.setCustomFieldValue(cf, users ?: null)
+}
+
+def setSingleUserPickerField = { MutableIssue issue, String fieldId, String userKey ->
+    def cf = getCf(fieldId)
+    if (!cf) return
+
+    def key = userKey?.toString()?.trim()
+    if (!key || key == "-") {
+        issue.setCustomFieldValue(cf, null)
+        return
+    }
+
+    def selectedUser = userManager.getUserByKey(key)
+    if (!selectedUser) {
+        selectedUser = userManager.getUserByName(key)
+    }
+    if (selectedUser) {
+        issue.setCustomFieldValue(cf, selectedUser)
+    }
+}
+
+def subjectWithIssueKey = { String issueKey, def rawSubject ->
+    def subject = rawSubject?.toString()?.trim()
+    if (!subject) return ""
+
+    def key = issueKey?.toString()?.trim()
+    if (key && !subject.toLowerCase(Locale.ENGLISH).contains(key.toLowerCase(Locale.ENGLISH))) {
+        return "${key} - ${subject}"
+    }
+
+    subject
+}
+
+def contentWithMeetingLink = { def rawContent, def rawMeetingLink ->
+    def content = rawContent?.toString() ?: ""
+    def meetingLink = rawMeetingLink?.toString()?.trim()
+    if (!meetingLink) return content
+    if (content.contains(meetingLink)) return content
+
+    content ? "${content}\n\nToplantı Linki: ${meetingLink}" : "Toplantı Linki: ${meetingLink}"
+}
+
+def errorCollectionToText = { def errorCollection ->
+    def messages = []
+    messages.addAll(errorCollection?.errorMessages?.collect { it?.toString() } ?: [])
+    messages.addAll(errorCollection?.errors?.collect { k, v -> "${k}: ${v}" } ?: [])
+    messages.findAll { it }.join("; ") ?: "Transition doğrulaması başarısız oldu."
+}
+
+def resolveTransitionIdRaw = { def rawTransitionId, def rawTransitionKey ->
+    def transitionId = rawTransitionId?.toString()?.trim()
+    if (transitionId) return transitionId
+
+    def transitionKey = rawTransitionKey?.toString()?.trim()
+    if (!transitionKey) return null
+    TRANSITION_IDS_BY_KEY[transitionKey]?.toString()?.trim()
+}
+
+def parseTransitionId = { def rawTransitionId ->
+    def value = rawTransitionId?.toString()?.trim()
+    if (!value) return null
+    if (!(value ==~ /\d+/)) return null
+    value as Integer
+}
+
+def transitionIssue = { ApplicationUser user, def issue, Integer transitionId ->
+    def issueService = ComponentAccessor.issueService
+    def issueInputParameters = issueService.newIssueInputParameters()
+
+    try {
+        issueInputParameters.setSkipScreenCheck(true)
+    } catch (MissingMethodException ignored) {
+        try {
+            issueInputParameters.skipScreenCheck()
+        } catch (MissingMethodException ignoredAgain) {
+            log.debug("IssueInputParameters skipScreenCheck metodu bulunamadı.")
+        }
+    }
+
+    def validation = issueService.validateTransition(user, issue.id, transitionId, issueInputParameters)
+    if (!validation?.valid) {
+        return [
+            success: false,
+            message: errorCollectionToText(validation?.errorCollection)
+        ]
+    }
+
+    def transitionResult = issueService.transition(user, validation)
+    if (!transitionResult?.valid) {
+        return [
+            success: false,
+            message: errorCollectionToText(transitionResult?.errorCollection)
+        ]
+    }
+
+    return [
+        success     : true,
+        issueKey    : transitionResult.issue?.key ?: issue.key,
+        transitionId: transitionId
+    ]
+}
+
+def stripBusinessScorePrefix = { def rawValue ->
+    rawValue?.toString()?.trim()?.replaceFirst(/^\s*[1-5]\s*[-.)]\s*/, "") ?: ""
+}
+
+def getBusinessScoreFieldOptions = { Map fieldDef, def issue = null ->
+    def cf = getCf(fieldDef.fieldId?.toString())
+    if (!cf) return []
+    getCustomFieldOptions(cf, issue)
+        .collect { it.value?.toString() }
+        .findAll { it }
+}
+
+def scoreBusinessValue = { Map fieldDef, def rawValue, def issue = null ->
+    def value = rawValue?.toString()?.trim()
+    if (!value || value == "-") return null
+
+    def numericMatcher = value =~ /^\s*([1-5])(?:\s*[-.)].*|\s*)$/
+    if (numericMatcher.matches()) {
+        return numericMatcher[0][1] as Integer
+    }
+
+    def normalizedValue = normalizeOptionText(stripBusinessScorePrefix(value))
+    def options = getBusinessScoreFieldOptions(fieldDef, issue)
+    Integer matchedIndex = null
+    options.eachWithIndex { option, index ->
+        if (matchedIndex != null) return
+        def normalizedOption = normalizeOptionText(stripBusinessScorePrefix(option))
+        if (normalizedValue == normalizedOption ||
+            normalizedValue.endsWith(normalizedOption) ||
+            normalizedOption.endsWith(normalizedValue)) {
+            matchedIndex = index
+        }
+    }
+    if (matchedIndex != null) return matchedIndex + 1
+
+    if (normalizedValue.startsWith("cok yuksek")) return 5
+    if (normalizedValue.startsWith("yuksek")) return 4
+    if (normalizedValue.startsWith("orta")) return 3
+    if (normalizedValue.startsWith("dusuk")) return 2
+    if (normalizedValue.startsWith("yok") || normalizedValue.contains("etkisi yok")) return 1
+
+    null
+}
+
+def parseScoreDecimal = { def rawValue ->
+    def text = rawValue?.toString()?.trim()?.replace(",", ".")
+    if (!text || text == "-") return null
+    try {
+        new BigDecimal(text)
+    } catch (Exception ignored) {
+        null
+    }
+}
+
+def formatScoreValue = { BigDecimal value ->
+    if (value == null) return ""
+    value.setScale(2, RoundingMode.HALF_UP).stripTrailingZeros().toPlainString()
+}
+
+def businessScoreLevel = { BigDecimal score ->
+    if (score == null) return ""
+    if (score <= 2.00G) return "Düşük business değer"
+    if (score <= 3.00G) return "Orta business değer"
+    if (score <= 4.00G) return "Yüksek business değer"
+    "Çok yüksek business değer"
+}
+
+def normalizeTechnicalMatrixScore = { BigDecimal technicalScore ->
+    if (technicalScore == null) return null
+    technicalScore > 5G ? technicalScore.divide(20G, 2, RoundingMode.HALF_UP) : technicalScore
+}
+
+def quadrantDecision = { BigDecimal businessScore, BigDecimal technicalMatrixScore ->
+    if (businessScore == null || technicalMatrixScore == null) return [quadrant: "", decision: ""]
+
+    def highBusiness = businessScore >= 3.0G
+    def highTechnical = technicalMatrixScore >= 3.0G
+    if (highBusiness && highTechnical) {
+        return [quadrant: "Yüksek Business Değer + Yüksek Teknik Uygulanabilirlik", decision: "Öncelikli / Quick Win"]
+    }
+    if (highBusiness && !highTechnical) {
+        return [quadrant: "Yüksek Business Değer + Düşük Teknik Uygulanabilirlik", decision: "Stratejik / Fazlandırılacak iş"]
+    }
+    if (!highBusiness && highTechnical) {
+        return [quadrant: "Düşük-Orta Business Değer + Yüksek Teknik Uygulanabilirlik", decision: "Kapasite varsa yapılabilir"]
+    }
+    [quadrant: "Düşük-Orta Business Değer + Düşük Teknik Uygulanabilirlik", decision: "Öncelik dışı / kapsam daraltılır"]
+}
+
+def normalizeBusinessFieldsByGroup = { Map businessFields ->
+    def normalized = new LinkedHashMap(businessFields ?: [:])
+    BUSINESS_SCORE_GROUPS.each { group ->
+        def selectedFields = group.fields.findAll { fieldDef ->
+            normalized[fieldDef.id]?.toString()?.trim()
+        }
+        if (selectedFields.size() > 1) {
+            def keepId = selectedFields.first().id
+            group.fields.each { fieldDef ->
+                if (fieldDef.id != keepId) {
+                    normalized[fieldDef.id] = ""
+                }
+            }
+        }
+    }
+    normalized
+}
+
+def calculateBusinessScorePayload = { Map businessFields, def technicalScoreRaw, def issue = null ->
+    def safeBusinessFields = normalizeBusinessFieldsByGroup(businessFields ?: [:])
+    def groupScores = [:]
+    def fieldScores = [:]
+    BigDecimal total = 0G
+    int answeredGroups = 0
+
+    BUSINESS_SCORE_GROUPS.each { group ->
+        def scores = []
+        group.fields.each { fieldDef ->
+            def value = safeBusinessFields[fieldDef.id]?.toString()
+            def score = scoreBusinessValue(fieldDef, value, issue)
+            if (score != null) {
+                scores << score
+                fieldScores[fieldDef.id] = [value: value, score: score]
+            }
+        }
+
+        def groupScore = scores ? scores.max() as Integer : null
+        groupScores[group.key] = groupScore
+        if (groupScore != null) {
+            answeredGroups += 1
+            total += (groupScore as BigDecimal) * (group.weight as BigDecimal)
+        }
+    }
+
+    BigDecimal businessScore = answeredGroups > 0 ? total : null
+    BigDecimal technicalScore = parseScoreDecimal(technicalScoreRaw)
+    BigDecimal technicalMatrixScore = normalizeTechnicalMatrixScore(technicalScore)
+    def quadrant = quadrantDecision(businessScore, technicalMatrixScore)
+    BigDecimal talepScore = businessScore != null && technicalScore != null ? businessScore * technicalScore : null
+
+    [
+        businessScore        : businessScore,
+        businessScoreDisplay : formatScoreValue(businessScore),
+        businessLevel        : businessScoreLevel(businessScore),
+        technicalScore       : technicalScore,
+        technicalScoreDisplay: formatScoreValue(technicalScore),
+        technicalMatrixScore : technicalMatrixScore,
+        technicalMatrixDisplay: formatScoreValue(technicalMatrixScore),
+        technicalLevel       : technicalMatrixScore == null ? "" : (technicalMatrixScore >= 3.0G ? "Yüksek Teknik Uygulanabilirlik" : "Düşük Teknik Uygulanabilirlik"),
+        talepScore           : talepScore,
+        talepScoreDisplay    : formatScoreValue(talepScore),
+        quadrant             : quadrant.quadrant,
+        decision             : quadrant.decision,
+        groupScores          : groupScores,
+        fieldScores          : fieldScores,
+        answeredGroups       : answeredGroups,
+        weights              : BUSINESS_SCORE_GROUPS.collectEntries { group -> [(group.key): group.weight] }
+    ]
+}
+
+def evaluationHasIt = { String value ->
+    value in [EVAL_STATUS_IT, EVAL_STATUS_DONE]
+}
+
+def evaluationHasBusiness = { String value ->
+    value in [EVAL_STATUS_BUSINESS, EVAL_STATUS_DONE]
+}
+
+def nextEvaluationStatus = { String currentValue, boolean markIt, boolean markBusiness ->
+    boolean hasIt = evaluationHasIt(currentValue) || markIt
+    boolean hasBusiness = evaluationHasBusiness(currentValue) || markBusiness
+    if (hasIt && hasBusiness) return EVAL_STATUS_DONE
+    if (hasIt) return EVAL_STATUS_IT
+    if (hasBusiness) return EVAL_STATUS_BUSINESS
+    return currentValue ?: ""
+}
+
+def stripDomainAsMarker = { def value ->
+    (value ?: "").toString().replaceAll(/(?i)\s*\(AS\)\s*$/, "").trim()
+}
+
+def splitDriftDomainNames = { def value ->
+    (value ?: "").toString()
+        .split(/[,;|]/)
+        .collect { stripDomainAsMarker(it) }
+        .findAll { it }
+}
+
+def parseDomainEffortText = { def value ->
+    def text = value?.toString()?.trim()
+    if (!text || text == "-") return []
+
+    def pieces = []
+    text.split(/\r?\n|;/).each { part ->
+        def cleaned = part?.toString()?.trim()
+        if (cleaned) pieces << cleaned
+    }
+
+    pieces.collect { piece ->
+        def parts = piece.split(/\s*:\s*/, 3).collect { it.trim() }
+        if (parts.size() >= 3) {
+            def rawDomain = parts[0]
+            return [
+                domain : stripDomainAsMarker(rawDomain),
+                effort : parts[1] ?: "",
+                note   : parts[2] ?: "",
+                primary: rawDomain != stripDomainAsMarker(rawDomain)
+            ]
+        }
+
+        def splitIdx = piece.lastIndexOf(" - ")
+        if (splitIdx > -1) {
+            def rawDomain = piece.substring(0, splitIdx).trim()
+            return [
+                domain : stripDomainAsMarker(rawDomain),
+                effort : piece.substring(splitIdx + 3).trim(),
+                note   : "",
+                primary: rawDomain != stripDomainAsMarker(rawDomain)
+            ]
+        }
+
+        [
+            domain : stripDomainAsMarker(piece),
+            effort : "",
+            note   : "",
+            primary: piece != stripDomainAsMarker(piece)
+        ]
+    }.findAll { it.domain }
+}
+
+def buildDomainEffortTextFromSources = { String primaryDomainRaw, String technicalStakeholdersRaw, String existingEffortRaw ->
+    def primaryDomain = stripDomainAsMarker(primaryDomainRaw)
+    def desiredDomains = []
+    def addDomain = { def raw ->
+        def domain = stripDomainAsMarker(raw)
+        if (domain && !desiredDomains.contains(domain)) desiredDomains << domain
+    }
+
+    addDomain(primaryDomain)
+    splitDriftDomainNames(technicalStakeholdersRaw).each { addDomain(it) }
+    if (!desiredDomains) return ""
+
+    def existingRows = parseDomainEffortText(existingEffortRaw)
+    desiredDomains.collect { domain ->
+        def existing = existingRows.find { row -> stripDomainAsMarker(row.domain) == domain }
+        def label = primaryDomain && domain == primaryDomain ? "${domain} (AS)" : domain
+        "${label} : ${existing?.effort ?: ""} : ${existing?.note ?: ""}"
+    }.join("; ")
+}
+
+def affectedDomainLevelForCount = { int count ->
+    if (count <= 0) return ""
+    if (count == 1) return "Çok Düşük"
+    if (count == 2) return "Düşük"
+    if (count == 3) return "Orta"
+    if (count == 4) return "Yüksek"
+    "Çok Yüksek"
+}
+
+def affectedDomainLevelFromEffortText = { def effortText ->
+    def domains = parseDomainEffortText(effortText)
+        .collect { row -> stripDomainAsMarker(row.domain) }
+        .findAll { it }
+        .unique()
+    affectedDomainLevelForCount(domains.size())
+}
+
+/* =========================================================
+   DIAGNOSTIC
+   GET /rest/scriptrunner/latest/custom/filozofDiag
+   Script yukleniyor mu ve temel servisler erisilebilir mi kontrol eder.
+   ========================================================= */
+
+filozofDiag(
+    httpMethod: "GET"
+) { MultivaluedMap qp ->
+    try {
+        def requestUser = ComponentAccessor.jiraAuthenticationContext.loggedInUser
+        def executionUser = null
+        def executionUserError = ""
+        try {
+            executionUser = getFilozofExecutionUser()
+        } catch (Exception ex) {
+            executionUserError = "${ex.class.simpleName}: ${ex.message}".toString()
+        }
+
+        return Response.ok(JsonOutput.toJson([
+            success: true,
+            script : "endpointProd.groovy",
+            packageName: "Drift",
+            requestUser: [
+                key        : requestUser?.key ?: "",
+                name       : requestUser?.name ?: "",
+                displayName: requestUser?.displayName ?: ""
+            ],
+            executionUser: [
+                key        : executionUser?.key ?: "",
+                name       : executionUser?.name ?: "",
+                displayName: executionUser?.displayName ?: "",
+                error      : executionUserError
+            ],
+            fields: [
+                filozofSource       : getCf(CF_FILOZOF_SOURCE) != null,
+                convertedRequest    : getCf(CF_FILOZOF_CONVERTED_REQUEST) != null,
+                portfoyYoneticisi   : getCf(CF_PORTFOY_YONETICISI) != null,
+                businessAuthGroup   : getCf(CF_BUSINESS_AUTH_GROUP) != null,
+                anaSorumluGrup      : getCf(CF_ANA_SORUMLU_GRUP) != null,
+                domainOptions       : getCf(CF_DOMAIN_ADI_OPTIONS) != null
+            ]
+        ]))
+            .type(MediaType.APPLICATION_JSON)
+            .build()
+    } catch (Exception e) {
+        log.error("Filozof diagnostic error", e)
+        return Response.status(500)
+            .entity(JsonOutput.toJson([success: false, message: "${e.class.simpleName}: ${e.message}".toString()]))
+            .type(MediaType.APPLICATION_JSON)
+            .build()
+    }
+}
+
+
+/* =========================================================
+   0) NAVIGATION ASSET API
+   GET /rest/scriptrunner/latest/custom/navigationHubAsset?type=logo|video
+   ========================================================= */
+
+navigationHubAsset(httpMethod: "GET") { MultivaluedMap queryParams, String body, HttpServletRequest request ->
+
+    def requestUser = ComponentAccessor.jiraAuthenticationContext.loggedInUser
+    if (!requestUser) {
+        return Response.status(401)
+            .entity("Giris gerekli.")
+            .type("text/plain; charset=UTF-8")
+            .build()
+    }
+
+    def type = queryParams.getFirst("type")?.toString()?.trim()?.toLowerCase(Locale.ENGLISH)
+    if (!(type in ["logo", "video"])) {
+        return Response.status(400)
+            .entity("type=logo veya type=video zorunludur.")
+            .type("text/plain; charset=UTF-8")
+            .build()
+    }
+
+    try {
+        def asset = navResolveAsset(type)
+        if (!asset.success) {
+            return Response.status((asset.status ?: 500) as int)
+                .entity(asset.message?.toString() ?: "Asset okunamadi.")
+                .type("text/plain; charset=UTF-8")
+                .build()
+        }
+
+        def file = asset.file
+        def filename = asset.filename
+        def safeFilename = filename.replaceAll("[\\r\\n\"]", "_")
+        def mimeType = asset.mimeType
+        long fileLength = asset.length as Long
+
+        if (queryParams.getFirst("probe")?.toString()?.trim() == "1") {
+            return Response.ok(JsonOutput.toJson([
+                success : true,
+                type    : type,
+                filename: filename,
+                mimeType: mimeType,
+                length  : fileLength
+            ]))
+                .type(MediaType.APPLICATION_JSON)
+                .header("Cache-Control", "private, max-age=60")
+                .build()
+        }
+
+        def rangeHeader = request?.getHeader("Range")?.toString()
+        if (rangeHeader?.startsWith("bytes=")) {
+            long start = 0L
+            long end = fileLength - 1L
+            try {
+                def rangeSpec = rangeHeader.substring(6).split(",", 2)[0].trim()
+                def parts = rangeSpec.split("-", 2)
+                if (parts[0]) {
+                    start = Math.max(0L, parts[0] as Long)
+                    if (parts.size() > 1 && parts[1]) {
+                        end = Math.min(fileLength - 1L, parts[1] as Long)
+                    }
+                } else if (parts.size() > 1 && parts[1]) {
+                    long suffixLength = Math.min(fileLength, parts[1] as Long)
+                    start = fileLength - suffixLength
+                    end = fileLength - 1L
+                }
+            } catch (Exception ignored) {
+                start = 0L
+                end = fileLength - 1L
+            }
+
+            if (start < 0L || start >= fileLength || end < start) {
+                return Response.status(416)
+                    .entity("Range gecersiz.")
+                    .type("text/plain; charset=UTF-8")
+                    .header("Content-Range", "bytes */${fileLength}")
+                    .header("Accept-Ranges", "bytes")
+                    .build()
+            }
+
+            def partialFile = (start == 0L && end == fileLength - 1L) ? file : navRangeFile(file, start, end, filename)
+            long contentLength = end - start + 1L
+            return Response.status(206)
+                .entity(partialFile)
+                .type(mimeType)
+                .header("Content-Disposition", "inline; filename=\"${safeFilename}\"")
+                .header("Content-Length", contentLength.toString())
+                .header("Content-Range", "bytes ${start}-${end}/${fileLength}")
+                .header("Accept-Ranges", "bytes")
+                .header("Cache-Control", "private, max-age=3600")
+                .build()
+        }
+
+        return Response.ok(file, mimeType)
+            .header("Content-Disposition", "inline; filename=\"${safeFilename}\"")
+            .header("Content-Length", fileLength.toString())
+            .header("Accept-Ranges", "bytes")
+            .header("Cache-Control", "private, max-age=3600")
+            .build()
+    } catch (Exception e) {
+        log.error("Navigation asset okunamadi.", e)
+        return Response.status(500)
+            .entity("Asset okunamadi.")
+            .type("text/plain; charset=UTF-8")
+            .build()
+    }
+}
+
+/* =========================================================
+   1) SEARCH API
+   GET /rest/scriptrunner/latest/custom/olgunlastirmaSearch
+   ========================================================= */
+
+olgunlastirmaSearch(
+    httpMethod: "GET"
+) { MultivaluedMap qp ->
+
+    def requestUser = ComponentAccessor.jiraAuthenticationContext.loggedInUser
+    if (!requestUser) {
+        return Response.status(401)
+            .entity(JsonOutput.toJson([success: false, message: "Giris gerekli."]))
+            .type(MediaType.APPLICATION_JSON)
+            .build()
+    }
+
+    try {
+    def requestId = UUID.randomUUID().toString()
+    log.warn("Olgunlastirma search start. requestId=${requestId}, user=${requestUser?.name ?: requestUser?.key}, params=${qp}")
+    def executionUser = getFilozofExecutionUser()
+    def searchService = ComponentAccessor.getComponent(SearchService)
+
+    def pool = qp.getFirst("pool")?.toString()?.trim()?.toLowerCase() == "request" ? "request" : "idea"
+    def role = qp.getFirst("role")?.toString()?.trim()?.toLowerCase() ?: ""
+    def scope = qp.getFirst("scope")?.toString()?.trim()?.toLowerCase() ?: ""
+    def jql
+    def jqlUser = executionUser
+    def requestUserSicil = (requestUser?.name ?: requestUser?.key ?: "").toString().trim()
+    def requestUserSicilForJql = requestUserSicil.replace("\\", "\\\\").replace("\"", "\\\"")
+    def sourceCustomId = CF_FILOZOF_SOURCE.replace("customfield_", "")
+    def convertedRequestCustomId = CF_FILOZOF_CONVERTED_REQUEST.replace("customfield_", "")
+    def portfoyCustomId = CF_PORTFOY_YONETICISI.replace("customfield_", "")
+    def businessAuthGroupCustomId = CF_BUSINESS_AUTH_GROUP.replace("customfield_", "")
+    def anaSorumluGroupCustomId = CF_ANA_SORUMLU_GRUP.replace("customfield_", "")
+    def driftIssueScopeJql = "(issuetype = Fikir OR (issuetype = Talep AND cf[${sourceCustomId}] = \"Filozof\"))"
+    def convertedRequestJql = "cf[${convertedRequestCustomId}] is not EMPTY"
+
+    if (scope in ["all", "tumfikirler"]) {
+        jql = "project = HC AND ${driftIssueScopeJql} ORDER BY created DESC"
+    } else if (scope in ["myportfolio", "portfoyumdekitalep", "portfoyumdekitalepler"]) {
+        jqlUser = requestUser
+        jql = "project = HC AND ${driftIssueScopeJql} AND (cf[${portfoyCustomId}] = \"${requestUserSicilForJql}\" OR cf[${portfoyCustomId}] is EMPTY) ORDER BY created DESC"
+    } else if (scope in ["teamideas", "ekibim", "ekibiminfikirleri"]) {
+        jql = "project = HC AND ${driftIssueScopeJql} AND cf[${businessAuthGroupCustomId}] in groupsOfUser(\"${requestUserSicilForJql}\") ORDER BY created DESC"
+    } else if (scope in ["responsibleideas", "anasorumlu", "anasorumluoldugumfikirler"]) {
+        jql = "project = HC AND ${driftIssueScopeJql} AND cf[${anaSorumluGroupCustomId}] in groupsOfUser(\"${requestUserSicilForJql}\") ORDER BY created DESC"
+    } else if (pool == "request" || scope in ["converted", "talebedonusen", "talebedonusenisler"]) {
+        jql = "project = HC AND ${driftIssueScopeJql} AND ${convertedRequestJql} ORDER BY created DESC"
+    } else if (scope in ["bankcontrol", "minecontrol", "control"]) {
+        jql = "project = HC AND ${driftIssueScopeJql} AND status = 'Olgunluk Kontrolü' ORDER BY created DESC"
+    } else if (scope == "backlog") {
+        jql = "project = HC AND ${driftIssueScopeJql} AND status = Backlog ORDER BY created DESC"
+    } else if (scope in ["worklist", "islistesi"]) {
+        jql = "project = HC AND ${driftIssueScopeJql} AND status = 'İş Listesi' ORDER BY created DESC"
+    } else if (role in ["pmo", "it"]) {
+        jql = "project = HC AND ${driftIssueScopeJql} AND status in ('Olgunluk Kontrolü','Olgunlaştırma',Backlog) ORDER BY created DESC"
+    } else {
+        jql = "project = HC AND ${driftIssueScopeJql} ORDER BY created DESC"
+    }
+    log.warn("Olgunlastirma search JQL. requestId=${requestId}, jqlUser=${jqlUser?.name ?: jqlUser?.key}, jql=${jql}")
+    def parseResult = searchService.parseQuery(jqlUser, jql)
+
+    if (!parseResult.valid) {
+        def parseErrorCollection = null
+        try {
+            parseErrorCollection = parseResult.errors
+        } catch (Exception ignored) {}
+        def parseErrors = parseErrorCollection ? errorCollectionToText(parseErrorCollection) : "JQL parse edilemedi."
+        return Response.status(400)
+            .entity(JsonOutput.toJson([success: false, message: "Geçersiz JQL sorgusu: ${parseErrors}".toString(), jql: jql]))
+            .type(MediaType.APPLICATION_JSON)
+            .build()
+    }
+
+    def results = searchService.search(jqlUser, parseResult.query, PagerFilter.unlimitedFilter)
+    log.warn("Olgunlastirma search result. requestId=${requestId}, total=${results?.total}, resultSize=${results?.results?.size() ?: 0}")
+
+    def issues = (results.results ?: []).collect { issue ->
+        def rawStatus = issue.status?.name ?: "-"
+        def displayStatus = displayStatusForPool(rawStatus, pool)
+        def converted = isConvertedOrAfter(displayStatus)
+        def tyValue = getFieldValueOrBlank(issue, CF_TY_KEY)
+        def paydasValue = getFieldValueOrBlank(issue, CF_TEKNIK_PAYDASLAR)
+
+        [
+            key                : issue.key ?: "-",
+            summary            : issue.summary ?: "-",
+            status             : rawStatus,
+            reporter           : issue.reporter?.displayName ?: "-",
+            reporterKey        : issue.reporter?.key ?: "",
+            reporterName       : issue.reporter?.name ?: "",
+            year               : getIssueYear(issue),
+            amac               : getFieldValueOrBlank(issue, CF_AMAC),
+            etkilenKanallar    : getFieldValueOrBlank(issue, CF_ETKILENECEK_KANALLAR),
+            etkilenecekPaydaslar: getFieldValueOrBlank(issue, CF_ETKILENECEK_PAYDAS),
+            businessGmy        : getFieldValueOrBlank(issue, CF_BUSINESS_GMY),
+            businessDirektorluk: getFieldValueOrBlank(issue, CF_BUSINESS_DIREKTORLUK),
+            businessMudurluk   : getFieldValueOrBlank(issue, CF_BUSINESS_MUDURLUK),
+            reporterBirim      : getFieldValueOrBlank(issue, CF_REPORTER_BIRIM),
+            hc                 : issue.key ?: "-",
+            talepNo            : tyValue ?: "",
+            ty                 : tyValue ?: "",
+            ideaName           : issue.summary ?: "-",
+            requestName        : issue.summary ?: "-",
+            anaSorumluBirim    : getFieldValueOrBlank(issue, CF_DOMAIN_ADI_OPTIONS),
+            teknikPaydas       : paydasValue,
+            deployDate         : pool == "request" ? getFieldValueOrBlank(issue, CF_DEPLOY_DATE) : "",
+            talepSkoru         : converted ? getFieldValueOrBlank(issue, CF_TALEP_SKORU) : "",
+            businessScore      : converted ? getFieldValueOrBlank(issue, CF_PRIORITY_BUSINESS_SCORE) : "",
+            itScore            : converted ? getFieldValueOrBlank(issue, CF_PRIORITY_IT_SCORE) : "",
+            filozofConvertedRequest: getFieldValueOrBlank(issue, CF_FILOZOF_CONVERTED_REQUEST),
+            businessAuthGroup  : getFieldValueAsString(issue, CF_BUSINESS_AUTH_GROUP),
+            anaSorumluGrup     : getFieldValueAsString(issue, CF_ANA_SORUMLU_GRUP),
+            created            : issue.created ? issue.created.format("yyyy-MM-dd HH:mm") : "-",
+            updated            : issue.updated ? issue.updated.format("yyyy-MM-dd HH:mm") : "-",
+            meetingDate        : getFieldValueOrBlank(issue, CF_MEETING_DATE),
+            portfoy            : getFieldValueAsString(issue, CF_PORTFOY_YONETICISI),
+            portfoyNotu        : getFieldValueOrBlank(issue, CF_PORTFOY_NOTU)
+        ]
+    }
+
+    return Response.ok(JsonOutput.toJson([
+        issues: issues,
+        pool: pool,
+        currentUser: [
+            key        : requestUser?.key ?: "",
+            name       : requestUser?.name ?: "",
+            displayName: requestUser?.displayName ?: "",
+            groups     : getUserGroupNames(requestUser)
+        ]
+    ]))
+        .type(MediaType.APPLICATION_JSON)
+        .build()
+    } catch (Exception e) {
+        log.error("Olgunlastirma search error", e)
+        return Response.status(500)
+            .entity(JsonOutput.toJson([success: false, message: "${e.class.simpleName}: ${e.message}".toString()]))
+            .type(MediaType.APPLICATION_JSON)
+            .build()
+    }
+}
+
+/* =========================================================
+   2) DETAIL API
+   GET /rest/scriptrunner/latest/custom/olgunlastirmaIssue?key=HC-123
+   ========================================================= */
+
+olgunlastirmaIssue(
+    httpMethod: "GET"
+) { MultivaluedMap qp ->
+
+    def requestUser = ComponentAccessor.jiraAuthenticationContext.loggedInUser
+    if (!requestUser) {
+        return Response.status(401)
+            .entity(JsonOutput.toJson([success: false, message: "Giris gerekli."]))
+            .type(MediaType.APPLICATION_JSON)
+            .build()
+    }
+
+    def key = qp.getFirst("key")?.toString()?.trim()
+    if (!key) {
+        return Response.status(400)
+            .entity(JsonOutput.toJson([success: false, message: "key parametresi zorunludur."]))
+            .type(MediaType.APPLICATION_JSON)
+            .build()
+    }
+
+    def issue = issueManager.getIssueObject(key)
+
+    if (!issue) {
+        return Response.status(404)
+            .entity(JsonOutput.toJson([success: false, message: "Kayıt bulunamadı."]))
+            .type(MediaType.APPLICATION_JSON)
+            .build()
+    }
+
+    def fieldIds = [
+        meetingDate               : CF_MEETING_DATE,
+        acilTalepMi               : CF_ACIL_TALEP_MI,
+        hcTalepTipi               : CF_HC_TALEP_TIPI,
+        portfoyYoneticisi         : CF_PORTFOY_YONETICISI,
+        degerlendirmeDurumu       : CF_DEGERLENDIRME_DURUMU,
+        portfoyYoneticiNotu       : CF_PORTFOY_NOTU,
+        amac                      : CF_AMAC,
+        problem                   : CF_PROBLEM,
+        kpi                       : CF_KPI,
+        mevcut_durum              : CF_MEVCUT_DURUM,
+        cozum_tipi                : CF_COZUM_TIPI,
+        hedef_kitle               : CF_HEDEF_KITLE,
+        etkilenecek_kanallar      : CF_ETKILENECEK_KANALLAR,
+        countlyEntegrasyonu       : CF_COUNTLY_ENTEGRASYONU,
+        countlyAciklama           : CF_COUNTLY_ACIKLAMA,
+        npsTakip                  : CF_NPS_TAKIP,
+        npsAciklama               : CF_NPS_ACIKLAMA,
+        uiEtkisi                  : CF_UI_ETKISI,
+        uiAciklama                : CF_UI_ACIKLAMA,
+        disSistemEntegrasyonu     : CF_DIS_SISTEM_ENTEGRASYONU,
+        raporlamaAciklama         : CF_RAPORLAMA_ACIKLAMA,
+        reporterBirim             : CF_REPORTER_BIRIM,
+        etkilenecekPaydasAciklama : CF_ETKILENECEK_PAYDAS_ACIKLAMA,
+        etkilenecekPaydaslar      : CF_ETKILENECEK_PAYDAS,
+        anaSorumluBirim           : CF_DOMAIN_ADI_OPTIONS,
+        anaSorumluGrup            : CF_ANA_SORUMLU_GRUP,
+        businessAuthGroup         : CF_BUSINESS_AUTH_GROUP,
+        teknikPaydaslar           : CF_TEKNIK_PAYDASLAR,
+
+        itTshirtSize              : CF_IT_TSHIRT_SIZE,
+        itDomainEfor              : CF_IT_DOMAIN_EFOR_TEXT,
+        itDomainAdi               : CF_DOMAIN_ADI_OPTIONS,
+        itDigerDomainler          : CF_IT_DIGER_DOMAINLER,
+        itEtkilenenDomain         : CF_IT_ETKILENEN_DOMAIN,
+        itAltyapiEtkisi           : CF_IT_ALTYAPI_ETKISI,
+        itEntegrasyonEtkisi       : CF_IT_ENTEGRASYON_ETKISI,
+        itMevcutSistemEtkisi      : CF_IT_MEVCUT_SISTEM_ETKISI,
+        itTestYayinlama           : CF_IT_TEST_YAYINLAMA,
+        itDisBagimlilik           : CF_IT_DIS_BAGIMLILIK,
+
+        buScopeGrowthIndividual   : CF_BU_SCOPE_GROWTH_INDIVIDUAL,
+        buScopeGrowthCorporate    : CF_BU_SCOPE_GROWTH_CORPORATE,
+        buScopeOperation          : CF_BU_SCOPE_OPERATION,
+        buOperationalGain         : CF_BU_OPERATIONAL_GAIN,
+        buFinancialGrowthIndividual: CF_BU_FINANCIAL_GROWTH_INDIVIDUAL,
+        buFinancialGrowthCorporate: CF_BU_FINANCIAL_GROWTH_CORPORATE,
+        buCustomerEffect          : CF_BU_CUSTOMER_EFFECT,
+        buOperationalFinRisk      : CF_BU_OPERATIONAL_FIN_RISK,
+
+        businessScore             : CF_PRIORITY_BUSINESS_SCORE,
+        itScore                   : CF_PRIORITY_IT_SCORE,
+        talepSkoru                : CF_TALEP_SKORU,
+        oncelik                   : CF_PRIORITY_ONCELIK,
+
+        katilimciKullanicilar     : CF_KATILIMCI_KULLANICILAR,
+        katilimciMailler          : CF_KATILIMCI_MAILLER
+    ]
+
+    def fieldsData = [:]
+
+    fieldIds.each { k, id ->
+        def cf = getCf(id)
+        if (!cf) {
+            fieldsData[k] = [value: "-", displayText: "-", options: [], users: []]
+            return
+        }
+
+        def val = issue.getCustomFieldValue(cf)
+        def typeKey = cf.customFieldType?.key?.toString()?.toLowerCase() ?: ""
+        def options = getCustomFieldOptions(cf, issue)
+            .collect { it.value?.toString() }
+            .findAll { it }
+        def cascadingOptions = typeKey.contains("cascadingselect") ? getCascadingFieldOptions(cf, issue) : []
+        def cascadingValue = [parent: "", child: ""]
+
+        def value = "-"
+        def displayText = "-"
+        def users = []
+
+        if (val instanceof java.util.Date) {
+            value = val.format("yyyy-MM-dd HH:mm")
+            displayText = value
+        } else if (val instanceof ApplicationUser) {
+            value = val.key
+            displayText = val.displayName ?: val.key
+        } else if (val instanceof Option) {
+            value = val.value ?: "-"
+            displayText = value
+        } else if (val instanceof Map) {
+            cascadingValue = getCascadingSelectedValue(val)
+            value = cascadingValue.display ?: "-"
+            displayText = value
+        } else if (val instanceof Collection) {
+            if (val && val.every { it instanceof ApplicationUser }) {
+                users = val.collect { u ->
+                    [username: u.key, displayName: u.displayName ?: u.key]
+                }
+                value = users.collect { it.displayName }.join(", ")
+                displayText = value
+            } else {
+                value = val.collect { it instanceof Option ? it.value : it?.toString() }.findAll { it }.join(", ") ?: "-"
+                displayText = value
+            }
+        } else {
+            value = val?.toString() ?: "-"
+            displayText = value
+            if (k == "portfoyYoneticisi" && value != "-") {
+                def portfoyUser = userManager.getUserByKey(value) ?: userManager.getUserByName(value)
+                if (portfoyUser) {
+                    value = portfoyUser.key
+                    displayText = portfoyUser.displayName ?: portfoyUser.key
+                }
+            }
+        }
+
+        fieldsData[k] = [
+            value      : value,
+            displayText: displayText,
+            options    : options,
+            cascadingOptions: cascadingOptions,
+            cascadingValue: cascadingValue,
+            users      : users,
+            name       : k == "hcTalepTipi" ? "HC Talep Tipi" : cf.name,
+            groupNames : groupNamesFromValue(val)
+        ]
+    }
+
+    return Response.ok(JsonOutput.toJson([
+        key        : issue.key,
+        summary    : issue.summary ?: "-",
+        description: issue.description ?: "-",
+        status     : issue.status?.name ?: "-",
+        reporter   : issue.reporter?.displayName ?: "-",
+        created    : issue.created?.format("yyyy-MM-dd HH:mm"),
+        updated    : issue.updated?.format("yyyy-MM-dd HH:mm"),
+        tyGeneralInfo: buildTyGeneralInfo(issue),
+        fields     : fieldsData
+    ])).type(MediaType.APPLICATION_JSON).build()
+}
+
+/* =========================================================
+   3) COMPLETE / SAVE
+   POST /rest/scriptrunner/latest/custom/completeOlgunlastirma
+   ========================================================= */
+
+completeOlgunlastirma(
+    httpMethod: "POST"
+) { MultivaluedMap qp, String body ->
+
+    def requestData = new JsonSlurper().parseText(body ?: "{}")
+
+    def issueKey = requestData.key?.toString()
+    def meetingDateStr = requestData.meetingDate?.toString()
+    def paydaslar = requestData.paydaslar?.toString()
+    def actionType = requestData.actionType?.toString()
+    def editScope = requestData.editScope?.toString()?.trim()?.toLowerCase(Locale.ENGLISH) ?: ""
+    def ideaFields = requestData.ideaFields instanceof Map ? requestData.ideaFields : [:]
+    def itFields = requestData.itFields instanceof Map ? requestData.itFields : [:]
+    def businessFields = normalizeBusinessFieldsByGroup(requestData.businessFields instanceof Map ? requestData.businessFields : [:])
+    def priorityFields = requestData.priorityFields instanceof Map ? requestData.priorityFields : [:]
+    def portfoyUser = requestData.portfoyUser?.toString()
+    def participantUsers = requestData.participantUsers instanceof Collection ? requestData.participantUsers : []
+    def participantMails = requestData.participantMails?.toString()
+    def mailSubject = requestData.mailSubject?.toString()
+    def mailContent = requestData.mailContent?.toString()
+    def meetingLink = requestData.meetingLink?.toString()
+
+    if (!issueKey) {
+        return Response.status(400)
+            .entity(JsonOutput.toJson([success: false, message: "Issue Key alınamadı."]))
+            .type(MediaType.APPLICATION_JSON)
+            .build()
+    }
+
+    def requestUser = ComponentAccessor.jiraAuthenticationContext.loggedInUser
+    if (!requestUser) {
+        return Response.status(401)
+            .entity(JsonOutput.toJson([success: false, message: "Giris gerekli."]))
+            .type(MediaType.APPLICATION_JSON)
+            .build()
+    }
+
+    def executionUser = getFilozofExecutionUser()
+    def mutable = issueManager.getIssueObject(issueKey) as MutableIssue
+
+    if (!mutable) {
+        return Response.status(404)
+            .entity(JsonOutput.toJson([success: false, message: "Kayıt bulunamadı."]))
+            .type(MediaType.APPLICATION_JSON)
+            .build()
+    }
+
+    def originalAnaSorumluBirim = getFieldValueOrBlank(mutable, CF_DOMAIN_ADI_OPTIONS)?.trim() ?: ""
+    def originalTeknikPaydaslar = getFieldValueOrBlank(mutable, CF_TEKNIK_PAYDASLAR)?.trim() ?: ""
+    def finalAnaSorumluBirim = originalAnaSorumluBirim
+    def finalTeknikPaydaslar = originalTeknikPaydaslar
+
+    def transitionKey = requestData.transitionKey?.toString()?.trim()
+    def transitionIdRaw = resolveTransitionIdRaw(requestData.transitionId, transitionKey)
+    Integer transitionId = null
+
+    if (requestData.transitionId != null || transitionKey) {
+        if (!transitionIdRaw) {
+            return Response.status(400)
+                .entity(JsonOutput.toJson([success: false, message: "Transition ID tanımlı değil."]))
+                .type(MediaType.APPLICATION_JSON)
+                .build()
+        }
+
+        transitionId = parseTransitionId(transitionIdRaw)
+        if (transitionId == null) {
+            return Response.status(400)
+                .entity(JsonOutput.toJson([success: false, message: "Transition ID sayısal olmalıdır. endpoint.groovy içindeki TRANSITION_IDS_BY_KEY değerlerini güncelleyin."]))
+                .type(MediaType.APPLICATION_JSON)
+                .build()
+        }
+    }
+
+    def authResult = authorizeOlgunlastirmaAction(requestUser, mutable, actionType, editScope, transitionId)
+    if (!authResult.success) {
+        return Response.status(403)
+            .entity(JsonOutput.toJson([success: false, message: authResult.message ?: "Bu işlem için yetkiniz yok."]))
+            .type(MediaType.APPLICATION_JSON)
+            .build()
+    }
+
+    try {
+        if (!authResult.fullAccess) {
+            meetingDateStr = null
+            paydaslar = null
+            portfoyUser = null
+            participantUsers = []
+            participantMails = null
+            mailSubject = null
+            mailContent = null
+            meetingLink = null
+
+            if (authResult.scope == "workflow") {
+                ideaFields = [:]
+                itFields = [:]
+                businessFields = [:]
+                priorityFields = [:]
+            } else if (authResult.scope == "business") {
+                ideaFields = [:]
+                itFields = [:]
+                priorityFields = [:]
+            } else if (authResult.scope == "it") {
+                def requestedItScore = priorityFields.edit_priority_it_score?.toString()?.trim()
+                ideaFields = [:]
+                businessFields = [:]
+                priorityFields = [:]
+
+                if (requestedItScore) {
+                    priorityFields.edit_priority_it_score = requestedItScore
+                    def currentBusinessScore = parseScoreDecimal(getFieldValueOrBlank(mutable, CF_PRIORITY_BUSINESS_SCORE))
+                    def newItScore = parseScoreDecimal(requestedItScore)
+                    if (currentBusinessScore != null && newItScore != null) {
+                        priorityFields.edit_priority_talep_skoru = formatScoreValue(currentBusinessScore * newItScore)
+                    }
+                }
+            }
+        }
+
+        def payloadStatusMode = statusModeForAuth(mutable)
+        def normalizedActionTypeForPayload = actionType?.toString()?.trim()?.toLowerCase(Locale.ENGLISH) ?: ""
+        def allowItFieldPayload = payloadStatusMode == "maturity" && (normalizedActionTypeForPayload == "complete" || editScope == "it")
+        def allowBusinessFieldPayload = payloadStatusMode == "maturity" && (normalizedActionTypeForPayload == "complete" || editScope == "business")
+        def allowPriorityFieldPayload = payloadStatusMode == "prioritization" || allowItFieldPayload || allowBusinessFieldPayload
+
+        if (!allowItFieldPayload) itFields = [:]
+        if (!allowBusinessFieldPayload) businessFields = [:]
+        if (!allowPriorityFieldPayload) priorityFields = [:]
+
+        def currentEvaluationStatus = getFieldValueOrBlank(mutable, CF_DEGERLENDIRME_DURUMU)
+        def marksItEvaluation = allowItFieldPayload && (normalizedActionTypeForPayload == "complete" || editScope == "it")
+        def marksBusinessEvaluation = allowBusinessFieldPayload && (normalizedActionTypeForPayload == "complete" || editScope == "business")
+        def effectiveEvaluationStatus = payloadStatusMode == "maturity"
+            ? nextEvaluationStatus(currentEvaluationStatus, marksItEvaluation, marksBusinessEvaluation)
+            : currentEvaluationStatus
+        def canCalculateItScore = payloadStatusMode == "prioritization" || evaluationHasIt(effectiveEvaluationStatus)
+        def canCalculateBusinessScore = payloadStatusMode == "prioritization" || evaluationHasBusiness(effectiveEvaluationStatus)
+
+        if (allowItFieldPayload && !itFields.edit_it_etkilenen_domain?.toString()?.trim()) {
+            def derivedAffectedDomain = affectedDomainLevelFromEffortText(
+                itFields.edit_it_domain_efor ?: getFieldValueOrBlank(mutable, CF_IT_DOMAIN_EFOR_TEXT)
+            )
+            if (derivedAffectedDomain) {
+                itFields = new LinkedHashMap(itFields)
+                itFields.edit_it_etkilenen_domain = derivedAffectedDomain
+            }
+        }
+
+        priorityFields = new LinkedHashMap(priorityFields)
+        if (!canCalculateItScore) priorityFields.remove("edit_priority_it_score")
+        if (!canCalculateBusinessScore) priorityFields.remove("edit_priority_business_score")
+        if (!(canCalculateItScore && canCalculateBusinessScore)) priorityFields.remove("edit_priority_talep_skoru")
+
+        def technicalScoreInput = canCalculateItScore ? (priorityFields.edit_priority_it_score ?: getFieldValueOrBlank(mutable, CF_PRIORITY_IT_SCORE)) : null
+        def businessScoreResult = canCalculateBusinessScore ? calculateBusinessScorePayload(businessFields, technicalScoreInput, mutable) : [businessScore: null]
+        if (businessScoreResult.businessScore != null) {
+            priorityFields = new LinkedHashMap(priorityFields)
+            priorityFields.edit_priority_business_score = businessScoreResult.businessScoreDisplay
+            if (canCalculateItScore && businessScoreResult.talepScoreDisplay) {
+                priorityFields.edit_priority_talep_skoru = businessScoreResult.talepScoreDisplay
+            }
+        }
+
+        def fieldMap = [
+            edit_portfoy_notu           : CF_PORTFOY_NOTU,
+            edit_acil_talep_mi          : CF_ACIL_TALEP_MI,
+            edit_hc_talep_tipi          : CF_HC_TALEP_TIPI,
+            edit_amac                   : CF_AMAC,
+            edit_problem                : CF_PROBLEM,
+            edit_kpi                    : CF_KPI,
+            edit_mevcut                 : CF_MEVCUT_DURUM,
+            edit_cozum                  : CF_COZUM_TIPI,
+            edit_hedef                  : CF_HEDEF_KITLE,
+            edit_kanallar               : CF_ETKILENECEK_KANALLAR,
+            edit_countly                : CF_COUNTLY_ENTEGRASYONU,
+            edit_countly_desc           : CF_COUNTLY_ACIKLAMA,
+            edit_nps                    : CF_NPS_TAKIP,
+            edit_nps_desc               : CF_NPS_ACIKLAMA,
+            edit_ui                     : CF_UI_ETKISI,
+            edit_ui_desc                : CF_UI_ACIKLAMA,
+            edit_dis                    : CF_DIS_SISTEM_ENTEGRASYONU,
+            edit_rapor                  : CF_RAPORLAMA_ACIKLAMA,
+
+            edit_it_tshirt_size          : CF_IT_TSHIRT_SIZE,
+            edit_it_domain_efor          : CF_IT_DOMAIN_EFOR_TEXT,
+            edit_it_domain_adi           : CF_DOMAIN_ADI_OPTIONS,
+            edit_it_diger_domainler      : (CF_IT_DIGER_DOMAINLER != CF_TEKNIK_PAYDASLAR ? CF_IT_DIGER_DOMAINLER : null),
+            edit_it_etkilenen_domain     : CF_IT_ETKILENEN_DOMAIN,
+            edit_it_altyapi_etkisi       : CF_IT_ALTYAPI_ETKISI,
+            edit_it_entegrasyon_etkisi   : CF_IT_ENTEGRASYON_ETKISI,
+            edit_it_mevcut_sistem_etkisi : CF_IT_MEVCUT_SISTEM_ETKISI,
+            edit_it_test_yayinlama       : CF_IT_TEST_YAYINLAMA,
+            edit_it_dis_bagimlilik       : CF_IT_DIS_BAGIMLILIK,
+
+            edit_bus_scope_growth_individual     : CF_BU_SCOPE_GROWTH_INDIVIDUAL,
+            edit_bus_scope_growth_corporate      : CF_BU_SCOPE_GROWTH_CORPORATE,
+            edit_bus_scope_operation             : CF_BU_SCOPE_OPERATION,
+            edit_bus_operational_gain            : CF_BU_OPERATIONAL_GAIN,
+            edit_bus_financial_growth_individual : CF_BU_FINANCIAL_GROWTH_INDIVIDUAL,
+            edit_bus_financial_growth_corporate  : CF_BU_FINANCIAL_GROWTH_CORPORATE,
+            edit_bus_customer_effect             : CF_BU_CUSTOMER_EFFECT,
+            edit_bus_operational_fin_risk        : CF_BU_OPERATIONAL_FIN_RISK,
+
+            edit_priority_business_score : CF_PRIORITY_BUSINESS_SCORE,
+            edit_priority_it_score       : CF_PRIORITY_IT_SCORE,
+            edit_priority_talep_skoru    : CF_TALEP_SKORU
+        ]
+
+        (ideaFields + itFields + businessFields + priorityFields).each { k, v ->
+            def fieldId = fieldMap[k?.toString()]
+            if (!fieldId) return
+            try {
+                setCustomFieldSmart(mutable, fieldId, v)
+            } catch (Exception ex) {
+                log.warn("Field update error: ${k} -> ${ex.message}")
+            }
+        }
+
+        if (payloadStatusMode == "maturity" && effectiveEvaluationStatus && effectiveEvaluationStatus != currentEvaluationStatus) {
+            try {
+                setCustomFieldSmart(mutable, CF_DEGERLENDIRME_DURUMU, effectiveEvaluationStatus)
+            } catch (Exception ex) {
+                log.warn("Evaluation status update error: ${ex.message}")
+            }
+        }
+
+        if (actionType == "complete") {
+            def cfStatus = getCf(CF_OLGUNLASTIRMA_DURUMU)
+            if (cfStatus) {
+                def fieldConfig = cfStatus.getRelevantConfig(mutable)
+                if (fieldConfig) {
+                    def option = optionsManager.getOptions(fieldConfig)?.find {
+                        it.value.equalsIgnoreCase("Olgunluk Toplantısı Planlandı") ||
+                        it.value.equalsIgnoreCase("Olgunlaştırma Toplantısı Planlandı")
+                    }
+                    if (option) {
+                        mutable.setCustomFieldValue(cfStatus, option)
+                    }
+                }
+            }
+        }
+
+        if (meetingDateStr) {
+            def cfDate = getCf(CF_MEETING_DATE)
+            if (cfDate) {
+                def date = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm").parse(meetingDateStr)
+                mutable.setCustomFieldValue(cfDate, new Timestamp(date.time))
+            }
+        }
+
+        if (paydaslar != null) {
+            setCustomFieldSmart(mutable, CF_ETKILENECEK_PAYDAS_ACIKLAMA, paydaslar)
+            def etkilenecekPaydaslar = parsePaydasUnitNames(paydaslar).join(", ")
+            setCustomFieldSmart(mutable, CF_ETKILENECEK_PAYDAS, etkilenecekPaydaslar)
+        }
+
+        if (ideaFields.containsKey("edit_control_domain_adi")) {
+            def requestedAnaSorumluBirim = ideaFields.edit_control_domain_adi?.toString()?.trim() ?: ""
+            finalAnaSorumluBirim = requestedAnaSorumluBirim
+            if (requestedAnaSorumluBirim != originalAnaSorumluBirim) {
+                setCustomFieldSmart(mutable, CF_DOMAIN_ADI_OPTIONS, requestedAnaSorumluBirim)
+            }
+        }
+
+        if (ideaFields.containsKey("edit_control_teknik_paydaslar")) {
+            def requestedTeknikPaydaslar = ideaFields.edit_control_teknik_paydaslar?.toString()?.trim() ?: ""
+            finalTeknikPaydaslar = requestedTeknikPaydaslar
+            if (requestedTeknikPaydaslar != originalTeknikPaydaslar) {
+                setCustomFieldSmart(mutable, CF_TEKNIK_PAYDASLAR, requestedTeknikPaydaslar)
+            }
+        }
+
+        if (ideaFields.containsKey("edit_control_domain_adi") || ideaFields.containsKey("edit_control_teknik_paydaslar")) {
+            def currentDomainEffortText = getFieldValueOrBlank(mutable, CF_IT_DOMAIN_EFOR_TEXT)
+            def refreshedDomainEffortText = buildDomainEffortTextFromSources(finalAnaSorumluBirim, finalTeknikPaydaslar, currentDomainEffortText)
+            setCustomFieldSmart(mutable, CF_IT_DOMAIN_EFOR_TEXT, refreshedDomainEffortText)
+        }
+
+        if (portfoyUser != null) {
+            setSingleUserPickerField(mutable, CF_PORTFOY_YONETICISI, portfoyUser)
+        }
+
+        if (requestData.containsKey("participantUsers") && !CF_KATILIMCI_KULLANICILAR.startsWith("REPLACE_")) {
+            setMultiUserPickerField(mutable, CF_KATILIMCI_KULLANICILAR, participantUsers*.toString())
+        }
+
+        if (!CF_KATILIMCI_MAILLER.startsWith("REPLACE_") && participantMails != null) {
+            setCustomFieldSmart(mutable, CF_KATILIMCI_MAILLER, participantMails)
+        }
+
+        if (requestData.containsKey("mailSubject")) {
+            setCustomFieldSmart(mutable, CF_MAIL_SUBJECT, subjectWithIssueKey(issueKey, mailSubject))
+        }
+
+        if (requestData.containsKey("mailContent") || requestData.containsKey("meetingLink")) {
+            setCustomFieldSmart(mutable, CF_MAIL_CONTENT, contentWithMeetingLink(mailContent, meetingLink))
+        }
+
+        issueManager.updateIssue(requestUser, mutable, EventDispatchOption.ISSUE_UPDATED, false)
+
+        def transitionResult = null
+        if (transitionId != null) {
+            transitionResult = transitionIssue(executionUser, mutable, transitionId)
+            if (!transitionResult.success) {
+                return Response.status(400)
+                    .entity(JsonOutput.toJson(transitionResult))
+                    .type(MediaType.APPLICATION_JSON)
+                    .build()
+            }
+        }
+
+        return Response.ok(JsonOutput.toJson([
+            success    : true,
+            transitioned: transitionResult != null,
+            transition : transitionResult,
+            actedBy    : [
+                key        : requestUser?.key ?: "",
+                name       : requestUser?.name ?: "",
+                displayName: requestUser?.displayName ?: ""
+            ]
+        ]))
+            .type(MediaType.APPLICATION_JSON)
+            .build()
+
+    } catch (Exception e) {
+        log.error("Update Issue Error", e)
+        return Response.status(500)
+            .entity(JsonOutput.toJson([success: false, message: e.message]))
+            .type(MediaType.APPLICATION_JSON)
+            .build()
+    }
+}
+
+/* =========================================================
+   4) BUSINESS SCORE FORMULA
+   POST /rest/scriptrunner/latest/custom/businessScoreFormula
+   Body: {"issueKey": "ABC-1", "businessFields": {...}, "technicalScore": "75"}
+   ========================================================= */
+
+businessScoreFormula(
+    httpMethod: "POST"
+) { MultivaluedMap qp, String body ->
+
+    def requestUser = ComponentAccessor.jiraAuthenticationContext.loggedInUser
+    if (!requestUser) {
+        return Response.status(401)
+            .entity(JsonOutput.toJson([success: false, message: "Giris gerekli."]))
+            .type(MediaType.APPLICATION_JSON)
+            .build()
+    }
+
+    try {
+        def requestData = new JsonSlurper().parseText(body ?: "{}")
+        def businessFields = requestData.businessFields instanceof Map ? requestData.businessFields : [:]
+        def technicalScore = requestData.technicalScore ?: requestData.itScore
+        def issueKey = requestData.issueKey?.toString()
+        def issue = issueKey ? issueManager.getIssueByCurrentKey(issueKey) : null
+        def result = calculateBusinessScorePayload(businessFields, technicalScore, issue)
+
+        return Response.ok(JsonOutput.toJson([success: true] + result))
+            .type(MediaType.APPLICATION_JSON)
+            .build()
+    } catch (Exception e) {
+        log.error("Business Score Formula Error", e)
+        return Response.status(500)
+            .entity(JsonOutput.toJson([success: false, message: e.message]))
+            .type(MediaType.APPLICATION_JSON)
+            .build()
+    }
+}
+
+
+/* =========================================================
+   5) TRANSITION
+   POST /rest/scriptrunner/latest/custom/transitionOlgunlastirma
+   Body: {"key":"HC-123","transitionId":11}
+         veya {"key":"HC-123","transitionKey":"olgunlukKontrolTamamlandi"}
+   ========================================================= */
+
+transitionOlgunlastirma(
+    httpMethod: "POST"
+) { MultivaluedMap qp, String body ->
+
+    def requestData = new JsonSlurper().parseText(body ?: "{}")
+
+    def issueKey = requestData.key?.toString()?.trim() ?: qp.getFirst("key")?.toString()?.trim()
+    def transitionKeyRaw = requestData.transitionKey ?: qp.getFirst("transitionKey")
+    def transitionIdRaw = resolveTransitionIdRaw(
+        requestData.transitionId ?: qp.getFirst("transitionId"),
+        transitionKeyRaw
+    )
+
+    if (!issueKey) {
+        return Response.status(400)
+            .entity(JsonOutput.toJson([success: false, message: "Issue Key alınamadı."]))
+            .type(MediaType.APPLICATION_JSON)
+            .build()
+    }
+
+    if (!transitionIdRaw) {
+        return Response.status(400)
+            .entity(JsonOutput.toJson([success: false, message: "transitionId veya transitionKey zorunludur."]))
+            .type(MediaType.APPLICATION_JSON)
+            .build()
+    }
+
+    def transitionId = parseTransitionId(transitionIdRaw)
+    if (transitionId == null) {
+        return Response.status(400)
+            .entity(JsonOutput.toJson([success: false, message: "Transition ID sayısal olmalıdır. endpoint.groovy içindeki TRANSITION_IDS_BY_KEY değerlerini güncelleyin."]))
+            .type(MediaType.APPLICATION_JSON)
+            .build()
+    }
+
+    def requestUser = ComponentAccessor.jiraAuthenticationContext.loggedInUser
+    if (!requestUser) {
+        return Response.status(401)
+            .entity(JsonOutput.toJson([success: false, message: "Giris gerekli."]))
+            .type(MediaType.APPLICATION_JSON)
+            .build()
+    }
+
+    def executionUser = getFilozofExecutionUser()
+    def issue = issueManager.getIssueObject(issueKey)
+
+    if (!issue) {
+        return Response.status(404)
+            .entity(JsonOutput.toJson([success: false, message: "Kayıt bulunamadı."]))
+            .type(MediaType.APPLICATION_JSON)
+            .build()
+    }
+
+    def backlogWorklistTransitionIds = [
+        TRANSITION_IDS_BY_KEY.backlogAlindi?.toString()?.trim(),
+        TRANSITION_IDS_BY_KEY.isListesineAlindi?.toString()?.trim()
+    ].findAll { it }
+    def canRunBacklogWorklistTransition = backlogWorklistTransitionIds.contains(transitionIdRaw?.toString()?.trim()) &&
+        userMatchesIssueGGroup(requestUser, issue, CF_ANA_SORUMLU_GRUP)
+
+    if (!hasFullOlgunlastirmaAccess(requestUser) && !canRunBacklogWorklistTransition) {
+        return Response.status(403)
+            .entity(JsonOutput.toJson([success: false, message: "Bu geçiş için Portföy Yönetimi Ofisi yetkisi gerekli."]))
+            .type(MediaType.APPLICATION_JSON)
+            .build()
+    }
+
+    try {
+        def transitionResult = transitionIssue(executionUser, issue, transitionId)
+        if (!transitionResult.success) {
+            return Response.status(400)
+                .entity(JsonOutput.toJson(transitionResult))
+                .type(MediaType.APPLICATION_JSON)
+                .build()
+        }
+
+        transitionResult.actedBy = [
+            key        : requestUser?.key ?: "",
+            name       : requestUser?.name ?: "",
+            displayName: requestUser?.displayName ?: ""
+        ]
+
+        return Response.ok(JsonOutput.toJson(transitionResult))
+            .type(MediaType.APPLICATION_JSON)
+            .build()
+    } catch (Exception e) {
+        log.error("Transition Issue Error", e)
+        return Response.status(500)
+            .entity(JsonOutput.toJson([success: false, message: e.message]))
+            .type(MediaType.APPLICATION_JSON)
+            .build()
+    }
+}
+/* =========================================================
+   6) DOMAIN OPTIONS
+   GET /rest/scriptrunner/latest/custom/fibarprDomainOptions
+   customfield_10494 alaninin tum custom field option degerlerini dondurur
+   ========================================================= */
+
+fibarprDomainOptions(
+    httpMethod: "GET"
+) { MultivaluedMap qp ->
+
+    def requestUser = ComponentAccessor.jiraAuthenticationContext.loggedInUser
+    if (!requestUser) {
+        return Response.status(401)
+            .entity(JsonOutput.toJson([success: false, message: "Giris gerekli."]))
+            .type(MediaType.APPLICATION_JSON)
+            .build()
+    }
+
+    def cf = getCf(CF_DOMAIN_ADI_OPTIONS)
+    if (!cf) {
+        return Response.status(404)
+            .entity(JsonOutput.toJson([success: false, message: "Domain option field bulunamadı."]))
+            .type(MediaType.APPLICATION_JSON)
+            .build()
+    }
+
+    def optionValues = []
+
+    cf.configurationSchemes?.each { scheme ->
+        scheme.configs?.values()?.each { config ->
+            optionValues.addAll(optionsManager.getOptions(config) ?: [])
+        }
+    }
+
+    def items = optionValues
+        .findAll { it && !it.disabled }
+        .collect { it.value?.toString()?.trim() }
+        .findAll { it }
+        .unique()
+        .sort { it.toLowerCase() }
+        .collect { [value: it, label: it] }
+
+    return Response.ok(JsonOutput.toJson([items: items]))
+        .type(MediaType.APPLICATION_JSON)
+        .build()
+}
+
+
+/* =========================================================
+   7) IDEA UNITS
+   GET /rest/scriptrunner/latest/custom/fibarprIdeaUnits
+   Olgunluk kontrol paydas secimi icin domain/birim listesini dondurur.
+   ========================================================= */
+
+fibarprIdeaUnits(
+    httpMethod: "GET"
+) { MultivaluedMap qp ->
+
+    def requestUser = ComponentAccessor.jiraAuthenticationContext.loggedInUser
+    if (!requestUser) {
+        return Response.status(401)
+            .entity(JsonOutput.toJson([success: false, message: "Giris gerekli."]))
+            .type(MediaType.APPLICATION_JSON)
+            .build()
+    }
+
+    try {
+        def cf = getCf(CF_DOMAIN_ADI_OPTIONS)
+        if (!cf) {
+            return Response.status(404)
+                .entity(JsonOutput.toJson([success: false, message: "Birim/domain option field bulunamadi."]))
+                .type(MediaType.APPLICATION_JSON)
+                .build()
+        }
+
+        def optionValues = []
+
+        cf.configurationSchemes?.each { scheme ->
+            scheme.configs?.values()?.each { config ->
+                optionValues.addAll(optionsManager.getOptions(config) ?: [])
+            }
+        }
+
+        def items = optionValues
+            .findAll { it && !it.disabled }
+            .collect { it.value?.toString()?.trim() }
+            .findAll { it }
+            .unique()
+            .sort { it.toLowerCase(new Locale("tr", "TR")) }
+            .collect { [value: it, label: it] }
+
+        return Response.ok(JsonOutput.toJson([items: items]))
+            .type(MediaType.APPLICATION_JSON)
+            .build()
+    } catch (Exception e) {
+        log.error("Fibarpr idea units error", e)
+        return Response.status(500)
+            .entity(JsonOutput.toJson([success: false, message: "${e.class.simpleName}: ${e.message}".toString()]))
+            .type(MediaType.APPLICATION_JSON)
+            .build()
+    }
+}
+
+
+/* =========================================================
+   8) USER PICKER
+   GET /rest/scriptrunner/latest/custom/userSearch?q=ali
+   ========================================================= */
+
+userSearch(
+    httpMethod: "GET"
+) { MultivaluedMap qp ->
+
+    def requestUser = ComponentAccessor.jiraAuthenticationContext.loggedInUser
+    if (!requestUser) {
+        return Response.status(401)
+            .entity(JsonOutput.toJson([success: false, message: "Giris gerekli."]))
+            .type(MediaType.APPLICATION_JSON)
+            .build()
+    }
+
+    def query = qp.getFirst("q")?.toString()?.toLowerCase()?.trim() ?: ""
+
+    def users = userManager.getAllApplicationUsers()
+        .findAll { it.displayName?.toLowerCase()?.contains(query) }
+        .sort { it.displayName ?: "" }
+        .take(20)
+
+    def result = users.collect {
+        [
+            username   : it.key,
+            displayName: it.displayName
+        ]
+    }
+
+    return Response.ok(JsonOutput.toJson(result))
+        .type(MediaType.APPLICATION_JSON)
+        .build()
+}
+
